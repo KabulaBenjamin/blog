@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><%= title %> — <%= settings.blog_title %></title>
+  <meta name="robots" content="noindex,nofollow">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Source+Serif+4:wght@300;400;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body class="admin-body admin-panel">
+
+<nav class="admin-nav">
+  <span class="admin-nav-brand">⚙️ Admin — <%= settings.blog_title %></span>
+  <div class="admin-nav-links">
+    <a href="/admin">Posts</a>
+    <a href="/admin/new">+ New Post</a>
+    <a href="/admin/settings">Settings</a>
+    <a href="/admin/contacts">Messages</a>
+    <a href="/" target="_blank">View Blog</a>
+    <a href="/admin/logout" class="admin-logout">Logout</a>
+  </div>
+</nav>
+
+<div class="admin-main">
+
+  <!-- Stats -->
+  <div class="admin-stats">
+    <div class="stat-card"><span class="stat-num"><%= stats.total %></span><span class="stat-label">Total Posts</span></div>
+    <div class="stat-card stat-card--green"><span class="stat-num"><%= stats.published %></span><span class="stat-label">Published</span></div>
+    <div class="stat-card stat-card--amber"><span class="stat-num"><%= stats.drafts %></span><span class="stat-label">Drafts</span></div>
+    <div class="stat-card stat-card--blue"><span class="stat-num"><%= stats.views.toLocaleString() %></span><span class="stat-label">Total Views</span></div>
+  </div>
+
+  <!-- Posts table -->
+  <div class="admin-section">
+    <div class="admin-section-header">
+      <h2>All Posts</h2>
+      <a href="/admin/new" class="btn-primary">+ New Post</a>
+    </div>
+    <% if (posts.length === 0) { %>
+    <p class="admin-empty">No posts yet. <a href="/admin/new">Create your first post →</a></p>
+    <% } else { %>
+    <div class="admin-table-wrap">
+      <table class="admin-table">
+        <thead>
+          <tr><th>Title</th><th>Category</th><th>Status</th><th>Views</th><th>Date</th><th>Actions</th></tr>
+        </thead>
+        <tbody>
+          <% for (const p of posts) { %>
+          <tr>
+            <td class="td-title">
+              <a href="/post/<%= p.slug %>" target="_blank"><%= p.title %></a>
+            </td>
+            <td><span class="post-category"><%= p.category %></span></td>
+            <td><span class="status-badge status-badge--<%= p.status %>"><%= p.status %></span></td>
+            <td><%= p.views || 0 %></td>
+            <td><%= new Date(p.created_at).toLocaleDateString() %></td>
+            <td class="td-actions">
+              <a href="/admin/edit/<%= p.id %>" class="action-btn">Edit</a>
+              <form method="POST" action="/admin/delete/<%= p.id %>" style="display:inline" onsubmit="return confirm('Delete this post?')">
+                <button type="submit" class="action-btn action-btn--danger">Delete</button>
+              </form>
+            </td>
+          </tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+    <% } %>
+  </div>
+
+</div>
+</body>
+</html>

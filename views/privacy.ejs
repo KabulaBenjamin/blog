@@ -1,0 +1,55 @@
+<%- include('partials/head') %>
+<main class="main">
+  <section class="page-hero">
+    <div class="container container--narrow">
+      <h1 class="page-title">Privacy Policy</h1>
+      <p class="page-sub">Last updated: <%= new Date().toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'}) %></p>
+    </div>
+  </section>
+  <div class="container container--narrow prose page-body">
+
+    <p>Welcome to <strong><%= settings.blog_title %></strong> ("the Blog"), operated by <%= settings.blog_author %>. This Privacy Policy explains how we collect, use, and protect your information when you visit this website.</p>
+
+    <h2>1. Information We Collect</h2>
+    <p>We may collect the following types of information:</p>
+    <ul>
+      <li><strong>Contact form data:</strong> When you submit our contact form, we collect your name, email address, and message.</li>
+      <li><strong>Usage data:</strong> We use Google Analytics to collect anonymized information about how visitors use the site (pages visited, time spent, browser type, etc.).</li>
+      <li><strong>Cookies:</strong> We use cookies for session management and analytics purposes.</li>
+    </ul>
+
+    <h2>2. Google AdSense &amp; Advertising</h2>
+    <p>This blog uses Google AdSense to display advertisements. Google, as a third-party vendor, uses cookies to serve ads based on your prior visits to this website or other websites. You may opt out of personalized advertising by visiting <a href="https://www.google.com/settings/ads" target="_blank" rel="noopener">Google Ads Settings</a>.</p>
+    <p>Third-party vendors and ad networks, including Google, use cookies to serve ads based on a user's prior visits to this website. Google's use of advertising cookies enables it and its partners to serve ads based on your visits to sites on the Internet.</p>
+
+    <h2>3. Google Analytics</h2>
+    <p>We use Google Analytics to understand site traffic and usage. Google Analytics uses cookies and collects data anonymously. You can opt out by installing the <a href="https://tools.google.com/dlpage/gaoptout" target="_blank" rel="noopener">Google Analytics Opt-out Browser Add-on</a>.</p>
+
+    <h2>4. How We Use Your Information</h2>
+    <ul>
+      <li>To respond to your contact form submissions</li>
+      <li>To improve the content and user experience of our blog</li>
+      <li>To display relevant advertising through Google AdSense</li>
+    </ul>
+
+    <h2>5. Data Sharing</h2>
+    <p>We do not sell, trade, or transfer your personal information to outside parties. We do not share personal data with third parties except as required by law or as necessary for operating our website (e.g., Google Analytics and Google AdSense).</p>
+
+    <h2>6. Cookies</h2>
+    <p>We use cookies to maintain session information. You can disable cookies in your browser settings; however, this may affect the functionality of the site.</p>
+
+    <h2>7. Children's Privacy</h2>
+    <p>This website is not directed at children under 13 years of age. We do not knowingly collect personal information from children under 13.</p>
+
+    <h2>8. Your Rights</h2>
+    <p>You have the right to request access to, correction of, or deletion of any personal data we hold about you. To make such a request, please contact us at <a href="mailto:<%= settings.blog_email %>"><%= settings.blog_email %></a>.</p>
+
+    <h2>9. Changes to This Policy</h2>
+    <p>We may update this Privacy Policy from time to time. Any changes will be reflected on this page with an updated date.</p>
+
+    <h2>10. Contact Us</h2>
+    <p>If you have questions about this Privacy Policy, contact us at <a href="mailto:<%= settings.blog_email %>"><%= settings.blog_email %></a>.</p>
+
+  </div>
+</main>
+<%- include('partials/footer') %>

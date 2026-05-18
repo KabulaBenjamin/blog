@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><%= title || settings.blog_title %></title>
+  <meta name="description" content="<%= meta_desc || settings.blog_tagline %>">
+  <meta name="author" content="<%= settings.blog_author %>">
+  <link rel="canonical" href="<%= canonical || '' %>">
+
+  <!-- Open Graph -->
+  <meta property="og:title"       content="<%= title %>">
+  <meta property="og:description" content="<%= meta_desc || settings.blog_tagline %>">
+  <meta property="og:type"        content="website">
+  <meta property="og:url"         content="<%= canonical || '' %>">
+  <% if (typeof post !== 'undefined' && post && post.cover_image) { %>
+  <meta property="og:image" content="<%= (process.env.BASE_URL || '') + post.cover_image %>">
+  <% } %>
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card"        content="summary_large_image">
+  <meta name="twitter:title"       content="<%= title %>">
+  <meta name="twitter:description" content="<%= meta_desc || settings.blog_tagline %>">
+
+  <!-- JSON-LD -->
+  <% if (typeof post !== 'undefined' && post) { %>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "BlogPosting",
+    "headline": "<%= post.title.replace(/"/g, '\\"') %>",
+    "description": "<%= (post.meta_desc || post.excerpt || '').replace(/"/g, '\\"') %>",
+    "author": { "@type": "Person", "name": "<%= settings.blog_author %>" },
+    "datePublished": "<%= post.created_at %>",
+    "dateModified":  "<%= post.updated_at %>"<% if (post.cover_image) { %>,
+    "image": "<%= (process.env.BASE_URL || '') + post.cover_image %>"<% } %>
+  }
+  </script>
+  <% } else { %>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Blog",
+    "name": "<%= settings.blog_title %>",
+    "description": "<%= settings.blog_tagline %>",
+    "author": { "@type": "Person", "name": "<%= settings.blog_author %>" }
+  }
+  </script>
+  <% } %>
+
+  <!-- Google Analytics -->
+  <% if (settings.ga_id) { %>
+  <script async src="https://www.googletagmanager.com/gtag/js?id=<%= settings.ga_id %>"></script>
+  <script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments)}gtag('js',new Date());gtag('config','<%= settings.ga_id %>');</script>
+  <% } %>
+
+  <!-- AdSense -->
+  <% if (settings.adsense_client) { %>
+  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=<%= settings.adsense_client %>" crossorigin="anonymous"></script>
+  <% } %>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400&family=Source+Serif+4:ital,opsz,wght@0,8..60,300;0,8..60,400;0,8..60,600;1,8..60,300&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<!-- ── Navigation ───────────────────────────────────────────────────── -->
+<nav class="nav" id="nav">
+  <div class="nav-inner">
+    <a href="/" class="nav-brand">
+      <span class="brand-name"><%= settings.blog_title %></span>
+      <span class="brand-tag"><%= settings.blog_tagline %></span>
+    </a>
+    <button class="nav-toggle" id="navToggle" aria-label="Menu">
+      <span></span><span></span><span></span>
+    </button>
+    <ul class="nav-links" id="navLinks">
+      <li><a href="/" class="nav-link">Home</a></li>
+      <li><a href="/about" class="nav-link">About</a></li>
+      <li><a href="/contact" class="nav-link">Contact</a></li>
+    </ul>
+  </div>
+</nav>

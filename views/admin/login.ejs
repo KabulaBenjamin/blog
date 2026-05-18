@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Login — <%= settings.blog_title %></title>
+  <meta name="robots" content="noindex,nofollow">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Source+Serif+4:wght@300;400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body class="admin-body">
+  <div class="admin-login-wrap">
+    <div class="admin-login-card">
+      <h1 class="admin-login-brand"><%= settings.blog_title %></h1>
+      <p class="admin-login-sub">Admin Panel</p>
+      <% if (error) { %>
+      <div class="alert alert--error"><%= error %></div>
+      <% } %>
+      <form method="POST" action="/admin/login">
+        <div class="form-group">
+          <label for="password">Password</label>
+          <input type="password" id="password" name="password" required autofocus placeholder="Enter admin password">
+        </div>
+        <button type="submit" class="btn-primary" style="width:100%">Sign In →</button>
+      </form>
+      <a href="/" class="admin-login-back">← Back to blog</a>
+    </div>
+  </div>
+</body>
+</html>

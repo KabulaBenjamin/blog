@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><%= title %> — Admin</title>
+  <meta name="robots" content="noindex,nofollow">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Source+Serif+4:wght@300;400;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body class="admin-body admin-panel">
+
+<nav class="admin-nav">
+  <span class="admin-nav-brand">⚙️ Admin — <%= settings.blog_title %></span>
+  <div class="admin-nav-links">
+    <a href="/admin">← All Posts</a>
+    <a href="/admin/new">+ New Post</a>
+    <a href="/admin/settings">Settings</a>
+    <a href="/" target="_blank">View Blog</a>
+    <a href="/admin/logout" class="admin-logout">Logout</a>
+  </div>
+</nav>
+
+<div class="admin-main">
+  <div class="editor-wrap">
+    <h2 class="editor-title"><%= post ? 'Edit Post' : 'New Post' %></h2>
+
+    <% if (error) { %>
+    <div class="alert alert--error"><%= error %></div>
+    <% } %>
+
+    <form method="POST" action="<%= post ? '/admin/edit/'+post.id : '/admin/new' %>" enctype="multipart/form-data" id="postForm">
+
+      <!-- Title -->
+      <div class="form-group">
+        <label for="title">Title <span class="req">*</span></label>
+        <input type="text" id="title" name="title" required placeholder="Post title…" value="<%= post ? post.title : '' %>">
+      </div>
+
+      <!-- Excerpt -->
+      <div class="form-group">
+        <label for="excerpt">Excerpt <span class="hint">(shown in listings)</span></label>
+        <textarea id="excerpt" name="excerpt" rows="2" placeholder="Short description of the post…"><%= post ? post.excerpt : '' %></textarea>
+      </div>
+
+      <!-- Content Type Tabs + Editor -->
+      <div class="form-group">
+        <label>Content <span class="req">*</span></label>
+
+        <div class="editor-tabs">
+          <button type="button" class="editor-tab" data-type="markdown" id="tab-markdown">📝 Markdown</button>
+          <button type="button" class="editor-tab" data-type="html"     id="tab-html">🌐 HTML</button>
+          <button type="button" class="editor-tab" data-type="text"     id="tab-text">📄 Plain Text</button>
+        </div>
+
+        <div class="editor-hint" id="editor-hint">
+          Paste or type your content below. Use <strong>Markdown</strong> syntax.
+        </div>
+
+        <div class="editor-toolbar" id="editor-toolbar">
+          <button type="button" onclick="wrapText('**','**')" title="Bold"><b>B</b></button>
+          <button type="button" onclick="wrapText('*','*')" title="Italic"><i>I</i></button>
+          <button type="button" onclick="insertLine('## ')" title="Heading">H2</button>
+          <button type="button" onclick="insertLine('### ')" title="Subheading">H3</button>
+          <button type="button" onclick="insertLine('- ')" title="List">• List</button>
+          <button type="button" onclick="insertLine('> ')" title="Blockquote">❝</button>
+          <button type="button" onclick="wrapText('`','`')" title="Inline Code">`code`</button>
+          <button type="button" onclick="insertLine('```\n\n```')" title="Code Block">```</button>
+          <button type="button" onclick="insertLink()" title="Link">🔗</button>
+          <button type="button" id="uploadImgBtn" title="Insert Image">🖼️ Image</button>
+          <span class="toolbar-sep"></span>
+          <button type="button" id="previewBtn" title="Preview">👁 Preview</button>
+        </div>
+
+        <input type="hidden" name="content_type" id="content_type" value="<%= post ? post.content_type : 'markdown' %>">
+        <textarea id="content" name="content" class="content-editor" rows="22" placeholder="Start writing…" required><%= post ? post.content : '' %></textarea>
+
+        <!-- Preview pane -->
+        <div class="editor-preview" id="editorPreview" style="display:none">
+          <div class="preview-close">
+            <button type="button" id="closePreview">✕ Close Preview</button>
+          </div>
+          <div class="prose preview-content" id="previewContent"></div>
+        </div>
+      </div>
+
+      <!-- Meta row -->
+      <div class="form-row">
+        <div class="form-group">
+          <label for="category">Category</label>
+          <input type="text" id="category" name="category" placeholder="e.g. Technology" value="<%= post ? post.category : 'General' %>">
+        </div>
+        <div class="form-group">
+          <label for="tags">Tags <span class="hint">(comma-separated)</span></label>
+          <input type="text" id="tags" name="tags" placeholder="e.g. nodejs, docker, faith" value="<%= post ? post.tags : '' %>">
+        </div>
+      </div>
+
+      <!-- SEO row -->
+      <div class="form-group">
+        <label for="meta_desc">Meta Description <span class="hint">(SEO — 150 chars max)</span></label>
+        <input type="text" id="meta_desc" name="meta_desc" maxlength="160" placeholder="Brief description for search engines…" value="<%= post ? post.meta_desc : '' %>">
+        <div class="char-count"><span id="metaCount">0</span>/160</div>
+      </div>
+
+      <!-- Cover image -->
+      <div class="form-group">
+        <label for="cover_image">Cover Image</label>
+        <% if (post && post.cover_image) { %>
+        <div class="current-img">
+          <img src="<%= post.cover_image %>" alt="Current cover" style="max-width:200px;border-radius:8px;margin-bottom:8px;display:block;">
+          <small>Upload a new image to replace</small>
+        </div>
+        <% } %>
+        <input type="file" id="cover_image" name="cover_image" accept="image/*">
+      </div>
+
+      <!-- Status + Submit -->
+      <div class="form-row form-row--actions">
+        <div class="form-group">
+          <label for="status">Status</label>
+          <select id="status" name="status">
+            <option value="draft"     <%= (!post || post.status==='draft')     ? 'selected' : '' %>>Draft</option>
+            <option value="published" <%= (post && post.status==='published')  ? 'selected' : '' %>>Published</option>
+          </select>
+        </div>
+        <div class="form-actions">
+          <button type="submit" name="status" value="draft"     class="btn-secondary">Save Draft</button>
+          <button type="submit" name="status" value="published" class="btn-primary">Publish →</button>
+        </div>
+      </div>
+
+    </form>
+
+    <!-- Hidden image upload input -->
+    <input type="file" id="hiddenImgUpload" accept="image/*" style="display:none">
+  </div>
+</div>
+
+<script>
+// ── Tab switching ──────────────────────────────────────────────────────
+const tabs   = document.querySelectorAll('.editor-tab');
+const ct     = document.getElementById('content_type');
+const hints  = {
+  markdown: 'Paste or type your content. Supports <strong>Markdown</strong> syntax (# heading, **bold**, *italic*, - list, > quote, ```code```).',
+  html:     'Paste raw <strong>HTML</strong> content. It will be sanitized and rendered as-is.',
+  text:     'Paste or type <strong>plain text</strong>. Blank lines become paragraphs.',
+};
+const hint  = document.getElementById('editor-hint');
+const tbar  = document.getElementById('editor-toolbar');
+
+function setTab(type) {
+  tabs.forEach(t => t.classList.toggle('editor-tab--active', t.dataset.type === type));
+  ct.value   = type;
+  hint.innerHTML = hints[type];
+  tbar.style.display = type === 'markdown' ? 'flex' : 'none';
+}
+tabs.forEach(t => t.addEventListener('click', () => setTab(t.dataset.type)));
+
+// Init active tab
+setTab(ct.value || 'markdown');
+
+// ── Markdown toolbar helpers ───────────────────────────────────────────
+const ed = document.getElementById('content');
+
+function wrapText(before, after) {
+  const s = ed.selectionStart, e = ed.selectionEnd;
+  const sel = ed.value.substring(s, e);
+  ed.value = ed.value.substring(0, s) + before + sel + after + ed.value.substring(e);
+  ed.setSelectionRange(s + before.length, e + before.length);
+  ed.focus();
+}
+function insertLine(prefix) {
+  const s = ed.selectionStart;
+  const before = ed.value.lastIndexOf('\n', s - 1) + 1;
+  ed.value = ed.value.substring(0, before) + prefix + ed.value.substring(before);
+  ed.setSelectionRange(before + prefix.length, before + prefix.length);
+  ed.focus();
+}
+function insertLink() {
+  const url   = prompt('URL:', 'https://');
+  if (!url) return;
+  const label = prompt('Link text:', 'Click here');
+  wrapText('[' + (label||'link') + '](', url + ')');
+}
+
+// ── Live preview ───────────────────────────────────────────────────────
+const previewBtn   = document.getElementById('previewBtn');
+const closePreview = document.getElementById('closePreview');
+const previewPane  = document.getElementById('editorPreview');
+const previewCont  = document.getElementById('previewContent');
+
+previewBtn.addEventListener('click', async () => {
+  const content = ed.value;
+  const type    = ct.value;
+  const res = await fetch('/admin/preview', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content, type }),
+  });
+  const data = await res.json();
+  previewCont.innerHTML = data.html;
+  previewPane.style.display = 'block';
+  previewPane.scrollIntoView({ behavior: 'smooth' });
+});
+closePreview.addEventListener('click', () => { previewPane.style.display = 'none'; });
+
+// ── Image upload (inline) ──────────────────────────────────────────────
+document.getElementById('uploadImgBtn').addEventListener('click', () => {
+  document.getElementById('hiddenImgUpload').click();
+});
+document.getElementById('hiddenImgUpload').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const fd = new FormData();
+  fd.append('image', file);
+  const res  = await fetch('/admin/upload-image', { method: 'POST', body: fd });
+  const data = await res.json();
+  if (data.url) {
+    const md = `\n![Image](${data.url})\n`;
+    const s  = ed.selectionStart;
+    ed.value = ed.value.substring(0, s) + md + ed.value.substring(s);
+    ed.focus();
+  }
+});
+
+// ── Meta description counter ───────────────────────────────────────────
+const metaInput = document.getElementById('meta_desc');
+const metaCount = document.getElementById('metaCount');
+metaCount.textContent = metaInput.value.length;
+metaInput.addEventListener('input', () => { metaCount.textContent = metaInput.value.length; });
+</script>
+</body>
+</html>

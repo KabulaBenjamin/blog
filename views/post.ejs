@@ -1,0 +1,87 @@
+<%- include('partials/head') %>
+
+<main class="main">
+  <article class="article" itemscope itemtype="https://schema.org/BlogPosting">
+
+    <!-- Hero -->
+    <header class="article-header">
+      <div class="container container--narrow">
+        <div class="post-meta">
+          <a href="/?category=<%= post.category %>" class="post-category"><%= post.category %></a>
+          <time class="post-date" itemprop="datePublished" datetime="<%= post.created_at %>">
+            <%= new Date(post.created_at).toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'}) %>
+          </time>
+          <span class="post-views"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg> <%= post.views %> views</span>
+        </div>
+        <h1 class="article-title" itemprop="headline"><%= post.title %></h1>
+        <% if (post.excerpt) { %>
+        <p class="article-lead"><%= post.excerpt %></p>
+        <% } %>
+        <div class="article-byline">
+          <span itemprop="author">By <%= settings.blog_author %></span>
+          <% if (tags.length > 0) { %>
+          <div class="article-tags">
+            <% for (const tag of tags) { %><a href="/?q=<%= encodeURIComponent(tag) %>" class="tag">#<%= tag %></a><% } %>
+          </div>
+          <% } %>
+        </div>
+      </div>
+    </header>
+
+    <!-- Cover Image -->
+    <% if (post.cover_image) { %>
+    <div class="article-cover">
+      <img src="<%= post.cover_image %>" alt="<%= post.title %>" itemprop="image">
+    </div>
+    <% } %>
+
+    <!-- AdSense Top -->
+    <% if (settings.adsense_client && settings.adsense_slot) { %>
+    <div class="container container--narrow ad-inline">
+      <ins class="adsbygoogle" style="display:block;text-align:center" data-ad-layout="in-article" data-ad-format="fluid" data-ad-client="<%= settings.adsense_client %>" data-ad-slot="<%= settings.adsense_slot %>"></ins>
+      <script>(adsbygoogle = window.adsbygoogle || []).push({});</script>
+    </div>
+    <% } %>
+
+    <!-- Body -->
+    <div class="container container--narrow">
+      <div class="article-body prose" itemprop="articleBody">
+        <%- htmlContent %>
+      </div>
+
+      <!-- Tags -->
+      <% if (tags.length > 0) { %>
+      <div class="article-tags-footer">
+        <strong>Tags:</strong>
+        <% for (const tag of tags) { %><a href="/?q=<%= encodeURIComponent(tag) %>" class="tag">#<%= tag %></a><% } %>
+      </div>
+      <% } %>
+
+      <!-- Share -->
+      <div class="share-bar">
+        <strong>Share:</strong>
+        <a href="https://twitter.com/intent/tweet?text=<%= encodeURIComponent(post.title) %>&url=<%= encodeURIComponent(canonical) %>" target="_blank" rel="noopener" class="share-btn share-btn--twitter">Twitter / X</a>
+        <a href="https://www.facebook.com/sharer/sharer.php?u=<%= encodeURIComponent(canonical) %>" target="_blank" rel="noopener" class="share-btn share-btn--fb">Facebook</a>
+        <a href="https://wa.me/?text=<%= encodeURIComponent(post.title + ' ' + canonical) %>" target="_blank" rel="noopener" class="share-btn share-btn--wa">WhatsApp</a>
+        <button class="share-btn share-btn--copy" onclick="navigator.clipboard.writeText('<%= canonical %>');this.textContent='✓ Copied!'">Copy Link</button>
+      </div>
+    </div>
+
+    <!-- Related posts -->
+    <% if (related.length > 0) { %>
+    <section class="related-posts">
+      <div class="container">
+        <h3 class="related-title">More in <%= post.category %></h3>
+        <div class="posts-grid posts-grid--3">
+          <% for (const p of related) { %>
+          <%- include('partials/postcard', { p }) %>
+          <% } %>
+        </div>
+      </div>
+    </section>
+    <% } %>
+
+  </article>
+</main>
+
+<%- include('partials/footer') %>

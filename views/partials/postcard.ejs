@@ -1,0 +1,23 @@
+<article class="post-card">
+  <% if (p.cover_image) { %>
+  <a href="/post/<%= p.slug %>" class="post-card-img-wrap">
+    <img src="<%= p.cover_image %>" alt="<%= p.title %>" class="post-card-img" loading="lazy">
+  </a>
+  <% } else { %>
+  <div class="post-card-img-placeholder">
+    <span><%= p.category ? p.category[0] : 'B' %></span>
+  </div>
+  <% } %>
+  <div class="post-card-body">
+    <div class="post-meta">
+      <span class="post-category"><%= p.category %></span>
+      <time class="post-date"><%= new Date(p.created_at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) %></time>
+    </div>
+    <h3 class="post-card-title"><a href="/post/<%= p.slug %>"><%= p.title %></a></h3>
+    <p class="post-card-excerpt"><%= p.excerpt || '' %></p>
+    <div class="post-card-footer">
+      <a href="/post/<%= p.slug %>" class="read-more">Read →</a>
+      <span class="post-views"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg> <%= p.views || 0 %></span>
+    </div>
+  </div>
+</article>

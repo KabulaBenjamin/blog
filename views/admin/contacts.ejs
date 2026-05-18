@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <title>Contact Messages — Admin</title>
+  <meta name="robots" content="noindex,nofollow">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Source+Serif+4:wght@300;400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body class="admin-body admin-panel">
+<nav class="admin-nav">
+  <span class="admin-nav-brand">⚙️ Admin — <%= settings.blog_title %></span>
+  <div class="admin-nav-links">
+    <a href="/admin">← Posts</a>
+    <a href="/admin/logout" class="admin-logout">Logout</a>
+  </div>
+</nav>
+<div class="admin-main">
+  <div class="editor-wrap">
+    <h2>Contact Messages (<%= contacts.length %>)</h2>
+    <% if (contacts.length === 0) { %>
+    <p class="admin-empty">No messages yet.</p>
+    <% } else { %>
+    <div class="admin-table-wrap">
+      <table class="admin-table">
+        <thead><tr><th>Name</th><th>Email</th><th>Message</th><th>Date</th></tr></thead>
+        <tbody>
+          <% for (const c of contacts) { %>
+          <tr>
+            <td><%= c.name %></td>
+            <td><a href="mailto:<%= c.email %>"><%= c.email %></a></td>
+            <td><%= c.message.substring(0,120) %><%= c.message.length>120?'…':'' %></td>
+            <td><%= new Date(c.created_at).toLocaleDateString() %></td>
+          </tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+    <% } %>
+  </div>
+</div>
+</body>
+</html>

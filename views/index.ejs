@@ -1,0 +1,114 @@
+<%- include('partials/head') %>
+
+<main class="main">
+
+  <!-- Hero -->
+  <section class="hero">
+    <div class="hero-inner">
+      <div class="hero-label">PERSONAL BLOG</div>
+      <h1 class="hero-title"><%= settings.blog_title %></h1>
+      <p class="hero-sub"><%= settings.blog_tagline %></p>
+    </div>
+    <div class="hero-deco" aria-hidden="true">
+      <div class="deco-ring deco-ring--1"></div>
+      <div class="deco-ring deco-ring--2"></div>
+      <div class="deco-ring deco-ring--3"></div>
+    </div>
+  </section>
+
+  <!-- Search & Filter -->
+  <section class="filter-bar">
+    <div class="container">
+      <form class="search-form" action="/" method="GET">
+        <div class="search-wrap">
+          <input type="text" name="q" placeholder="Search posts…" value="<%= search %>" class="search-input">
+          <button type="submit" class="search-btn">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          </button>
+        </div>
+        <% if (search) { %><a href="/" class="clear-search">✕ Clear</a><% } %>
+      </form>
+
+      <% if (categories.length > 0) { %>
+      <div class="categories">
+        <a href="/" class="cat-pill <%= !category ? 'cat-pill--active' : '' %>">All</a>
+        <% for (const cat of categories) { %>
+        <a href="/?category=<%= encodeURIComponent(cat) %>" class="cat-pill <%= category === cat ? 'cat-pill--active' : '' %>"><%= cat %></a>
+        <% } %>
+      </div>
+      <% } %>
+    </div>
+  </section>
+
+  <!-- Posts Grid -->
+  <section class="posts-section">
+    <div class="container">
+      <% if (posts.length === 0) { %>
+      <div class="empty-state">
+        <div class="empty-icon">📝</div>
+        <p>No posts yet. Check back soon!</p>
+      </div>
+      <% } else { %>
+
+      <!-- Featured post (first one) -->
+      <% if (!search && !category && page === 1 && posts.length > 0) { const featured = posts[0]; %>
+      <article class="post-featured">
+        <% if (featured.cover_image) { %>
+        <a href="/post/<%= featured.slug %>" class="post-featured-img-wrap">
+          <img src="<%= featured.cover_image %>" alt="<%= featured.title %>" class="post-featured-img" loading="eager">
+        </a>
+        <% } %>
+        <div class="post-featured-body">
+          <div class="post-meta">
+            <span class="post-category"><%= featured.category %></span>
+            <time class="post-date"><%= new Date(featured.created_at).toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'}) %></time>
+          </div>
+          <h2 class="post-featured-title"><a href="/post/<%= featured.slug %>"><%= featured.title %></a></h2>
+          <p class="post-excerpt"><%= featured.excerpt || '' %></p>
+          <a href="/post/<%= featured.slug %>" class="btn-read">Read Article →</a>
+        </div>
+      </article>
+
+      <!-- Rest of posts -->
+      <div class="posts-grid">
+        <% for (let i = 1; i < posts.length; i++) { const p = posts[i]; %>
+        <%- include('partials/postcard', { p }) %>
+        <% } %>
+      </div>
+
+      <% } else { %>
+      <div class="posts-grid">
+        <% for (const p of posts) { %>
+        <%- include('partials/postcard', { p }) %>
+        <% } %>
+      </div>
+      <% } %>
+
+      <!-- Pagination -->
+      <% if (totalPages > 1) { %>
+      <nav class="pagination">
+        <% if (page > 1) { %><a href="?page=<%= page-1 %><%= search ? '&q='+encodeURIComponent(search) : '' %><%= category ? '&category='+encodeURIComponent(category) : '' %>" class="pg-btn">← Prev</a><% } %>
+        <% for (let i = 1; i <= totalPages; i++) { %>
+        <a href="?page=<%= i %><%= search ? '&q='+encodeURIComponent(search) : '' %><%= category ? '&category='+encodeURIComponent(category) : '' %>" class="pg-btn <%= i === page ? 'pg-btn--active' : '' %>"><%= i %></a>
+        <% } %>
+        <% if (page < totalPages) { %><a href="?page=<%= page+1 %><%= search ? '&q='+encodeURIComponent(search) : '' %><%= category ? '&category='+encodeURIComponent(category) : '' %>" class="pg-btn">Next →</a><% } %>
+      </nav>
+      <% } %>
+
+      <% } %>
+    </div>
+  </section>
+
+  <!-- AdSense Banner (bottom) -->
+  <% if (settings.adsense_client && settings.adsense_slot) { %>
+  <div class="ad-banner">
+    <div class="container">
+      <ins class="adsbygoogle" style="display:block" data-ad-client="<%= settings.adsense_client %>" data-ad-slot="<%= settings.adsense_slot %>" data-ad-format="auto" data-full-width-responsive="true"></ins>
+      <script>(adsbygoogle = window.adsbygoogle || []).push({});</script>
+    </div>
+  </div>
+  <% } %>
+
+</main>
+
+<%- include('partials/footer') %>

@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Settings — Admin</title>
+  <meta name="robots" content="noindex,nofollow">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Source+Serif+4:wght@300;400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body class="admin-body admin-panel">
+<nav class="admin-nav">
+  <span class="admin-nav-brand">⚙️ Admin — <%= settings.blog_title %></span>
+  <div class="admin-nav-links">
+    <a href="/admin">← Posts</a>
+    <a href="/admin/logout" class="admin-logout">Logout</a>
+  </div>
+</nav>
+<div class="admin-main">
+  <div class="editor-wrap">
+    <h2>Blog Settings</h2>
+    <% if (success) { %><div class="alert alert--success">✅ Settings saved!</div><% } %>
+    <form method="POST" action="/admin/settings">
+
+      <fieldset class="settings-group">
+        <legend>Blog Identity</legend>
+        <div class="form-group">
+          <label>Blog Title</label>
+          <input type="text" name="blog_title" value="<%= settings.blog_title %>">
+        </div>
+        <div class="form-group">
+          <label>Tagline</label>
+          <input type="text" name="blog_tagline" value="<%= settings.blog_tagline %>">
+        </div>
+        <div class="form-group">
+          <label>Author Name</label>
+          <input type="text" name="blog_author" value="<%= settings.blog_author %>">
+        </div>
+        <div class="form-group">
+          <label>Contact Email</label>
+          <input type="email" name="blog_email" value="<%= settings.blog_email %>">
+        </div>
+        <div class="form-group">
+          <label>About Text <span class="hint">(shown on About page)</span></label>
+          <textarea name="blog_about" rows="5"><%= settings.blog_about %></textarea>
+        </div>
+      </fieldset>
+
+      <fieldset class="settings-group">
+        <legend>Google AdSense</legend>
+        <div class="form-group">
+          <label>AdSense Publisher ID <span class="hint">(e.g. ca-pub-1234567890)</span></label>
+          <input type="text" name="adsense_client" value="<%= settings.adsense_client %>" placeholder="ca-pub-XXXXXXXXXX">
+        </div>
+        <div class="form-group">
+          <label>Ad Slot ID</label>
+          <input type="text" name="adsense_slot" value="<%= settings.adsense_slot %>" placeholder="1234567890">
+        </div>
+      </fieldset>
+
+      <fieldset class="settings-group">
+        <legend>Google Analytics</legend>
+        <div class="form-group">
+          <label>Measurement ID <span class="hint">(e.g. G-XXXXXXXXXX)</span></label>
+          <input type="text" name="ga_id" value="<%= settings.ga_id %>" placeholder="G-XXXXXXXXXX">
+        </div>
+      </fieldset>
+
+      <fieldset class="settings-group">
+        <legend>Security</legend>
+        <div class="form-group">
+          <label>Admin Password</label>
+          <input type="text" name="admin_password" value="<%= settings.admin_password %>">
+          <small class="hint">⚠️ Change this immediately from the default "changeme123"</small>
+        </div>
+      </fieldset>
+
+      <div class="form-actions">
+        <button type="submit" class="btn-primary">Save Settings →</button>
+      </div>
+    </form>
+  </div>
+</div>
+</body>
+</html>
