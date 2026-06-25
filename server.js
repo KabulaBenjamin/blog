@@ -38,11 +38,9 @@ app.get('/posts', async (req, res) => {
 // Create a new post
 app.post('/posts', async (req, res) => {
   const { user_id, title, content } = req.body;
-
   if (!user_id || !title || !content) {
     return res.status(400).json({ error: 'User ID, title, and content are required.' });
   }
-
   try {
     const result = await pool.query(
       'INSERT INTO posts (user_id, title, content) VALUES ($1, $2, $3) RETURNING *',
@@ -55,14 +53,46 @@ app.post('/posts', async (req, res) => {
   }
 });
 
-// Signup with detailed error handling
+// Update a post
+app.put('/posts/:id', async (req, res) => {
+  const { id } = req.params;
+  const { title, content } = req.body;
+  try {
+    const result = await pool.query(
+      'UPDATE posts SET title=$1, content=$2 WHERE id=$3 RETURNING *',
+      [title, content, id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Post not found' });
+    }
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Update post error:', err.message);
+    res.status(500).json({ error: 'Failed to update post.' });
+  }
+});
+
+// Delete a post
+app.delete('/posts/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await pool.query('DELETE FROM posts WHERE id=$1 RETURNING *', [id]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Post not found' });
+    }
+    res.json({ success: true, deleted: result.rows[0] });
+  } catch (err) {
+    console.error('Delete post error:', err.message);
+    res.status(500).json({ error: 'Failed to delete post.' });
+  }
+});
+
+// Signup
 app.post('/signup', async (req, res) => {
   const { username, password } = req.body;
-
   if (!username || !password) {
     return res.status(400).json({ error: 'Username and password are required.' });
   }
-
   try {
     const result = await pool.query(
       'INSERT INTO users (username, password) VALUES ($1, $2) RETURNING *',
@@ -71,30 +101,24 @@ app.post('/signup', async (req, res) => {
     res.json(result.rows[0]);
   } catch (err) {
     console.error('Signup error:', err.message);
-
-    // Handle duplicate username (Postgres error code 23505)
     if (err.code === '23505') {
       return res.status(409).json({ error: 'Username already exists. Please choose another.' });
     }
-
     res.status(500).json({ error: 'Internal server error. Please try again later.' });
   }
 });
 
-// Signin with clear feedback
+// Signin
 app.post('/signin', async (req, res) => {
   const { username, password } = req.body;
-
   if (!username || !password) {
     return res.status(400).json({ error: 'Username and password are required.' });
   }
-
   try {
     const result = await pool.query(
       'SELECT * FROM users WHERE username=$1 AND password=$2',
       [username, password]
     );
-
     if (result.rows.length > 0) {
       res.json({ success: true, user: result.rows[0] });
     } else {
