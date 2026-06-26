@@ -8,9 +8,11 @@
     "dev": "nodemon server.js"
   },
   "dependencies": {
+    "bcrypt": "^6.0.0",
     "better-sqlite3": "^9.4.3",
     "compression": "^1.7.4",
     "connect-sqlite3": "^0.9.13",
+    "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "ejs": "^3.1.9",
