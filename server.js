@@ -1,6 +1,8 @@
 const express = require('express');
 const { Pool } = require('pg');
 const cors = require('cors');
+const cookieParser = require('cookie-parser');
+const fetch = require('node-fetch');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -8,6 +10,7 @@ const PORT = process.env.PORT || 3000;
 // Middleware
 app.use(express.json());
 app.use(cors());
+app.use(cookieParser());
 
 // PostgreSQL connection pool
 const pool = new Pool({
@@ -18,6 +21,33 @@ const pool = new Pool({
 pool.connect()
   .then(() => console.log('✅ Connected to PostgreSQL via Pool'))
   .catch(err => console.error('❌ DB connection error:', err));
+
+// Location middleware
+app.use(async (req, res, next) => {
+  try {
+    const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+    const response = await fetch(`https://ipapi.co/${ip}/json/`);
+    const data = await response.json();
+
+    req.userLocation = {
+      ip,
+      city: data.city,
+      region: data.region,
+      country: data.country_name
+    };
+
+    // Set a cookie for consent tracking
+    if (!req.cookies.consent) {
+      res.cookie('consent', 'true', { httpOnly: true, maxAge: 365*24*60*60*1000 });
+    }
+
+    console.log('📍 User location:', req.userLocation);
+  } catch (err) {
+    console.error('Location lookup failed:', err.message);
+    req.userLocation = null;
+  }
+  next();
+});
 
 // Root route
 app.get('/', (req, res) => {
@@ -37,14 +67,14 @@ app.get('/posts', async (req, res) => {
 
 // Create a new post
 app.post('/posts', async (req, res) => {
-  const { user_id, title, content } = req.body;
+  const { user_id, title, content, editor_type, live_link } = req.body;
   if (!user_id || !title || !content) {
     return res.status(400).json({ error: 'User ID, title, and content are required.' });
   }
   try {
     const result = await pool.query(
-      'INSERT INTO posts (user_id, title, content) VALUES ($1, $2, $3) RETURNING *',
-      [user_id, title, content]
+      'INSERT INTO posts (user_id, title, content, editor_type, live_link) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+      [user_id, title, content, editor_type || 'quill', live_link]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -56,11 +86,11 @@ app.post('/posts', async (req, res) => {
 // Update a post
 app.put('/posts/:id', async (req, res) => {
   const { id } = req.params;
-  const { title, content } = req.body;
+  const { title, content, editor_type, live_link } = req.body;
   try {
     const result = await pool.query(
-      'UPDATE posts SET title=$1, content=$2 WHERE id=$3 RETURNING *',
-      [title, content, id]
+      'UPDATE posts SET title=$1, content=$2, editor_type=$3, live_link=$4 WHERE id=$5 RETURNING *',
+      [title, content, editor_type || 'quill', live_link, id]
     );
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Post not found' });
