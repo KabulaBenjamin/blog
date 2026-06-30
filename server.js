@@ -3,6 +3,8 @@ const { Pool } = require('pg');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const fetch = require('node-fetch');
+const http = require('http');
+const WebSocket = require('ws');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -36,7 +38,6 @@ app.use(async (req, res, next) => {
       country: data.country_name
     };
 
-    // Set a cookie for consent tracking
     if (!req.cookies.consent) {
       res.cookie('consent', 'true', { httpOnly: true, maxAge: 365*24*60*60*1000 });
     }
@@ -54,10 +55,15 @@ app.get('/', (req, res) => {
   res.send('Welcome to Koikoi Blog API! Try /posts to see posts.');
 });
 
-// Fetch all posts
+// Fetch all posts with usernames
 app.get('/posts', async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM posts ORDER BY created_at DESC');
+    const result = await pool.query(`
+      SELECT posts.*, users.username 
+      FROM posts 
+      JOIN users ON posts.user_id = users.id 
+      ORDER BY posts.created_at DESC
+    `);
     res.json(result.rows);
   } catch (err) {
     console.error('Fetch posts error:', err.message);
@@ -160,10 +166,6 @@ app.post('/signin', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-});
-
 // Signup or auto-create user and signin
 app.post('/signup-or-signin', async (req, res) => {
   const { username, password } = req.body;
@@ -171,17 +173,14 @@ app.post('/signup-or-signin', async (req, res) => {
     return res.status(400).json({ error: 'Username and password are required.' });
   }
   try {
-    // Check if user exists
     const existing = await pool.query('SELECT * FROM users WHERE username=$1', [username]);
     if (existing.rows.length > 0) {
-      // Auto-signin if password matches
       if (existing.rows[0].password === password) {
         return res.json({ success: true, user: existing.rows[0] });
       } else {
         return res.status(401).json({ error: 'Password mismatch.' });
       }
     }
-    // Create new user
     const result = await pool.query(
       'INSERT INTO users (username, password) VALUES ($1, $2) RETURNING *',
       [username, password]
@@ -193,21 +192,6 @@ app.post('/signup-or-signin', async (req, res) => {
   }
 });
 
-// Fetch all posts with usernames
-app.get('/posts', async (req, res) => {
-  try {
-    const result = await pool.query(`
-      SELECT posts.*, users.username 
-      FROM posts 
-      JOIN users ON posts.user_id = users.id 
-      ORDER BY posts.created_at DESC
-    `);
-    res.json(result.rows);
-  } catch (err) {
-    console.error('Fetch posts error:', err.message);
-    res.status(500).json({ error: 'Failed to fetch posts.' });
-  }
-});
 // Fetch current user details by ID
 app.get('/me/:id', async (req, res) => {
   const { id } = req.params;
@@ -221,4 +205,26 @@ app.get('/me/:id', async (req, res) => {
     console.error('Fetch user error:', err.message);
     res.status(500).json({ error: 'Failed to fetch user.' });
   }
+});
+
+// Create HTTP server and attach WebSocket
+const server = http.createServer(app);
+const wss = new WebSocket.Server({ server, path: '/ws' });
+
+wss.on('connection', (ws) => {
+  console.log('🔌 WebSocket client connected');
+  ws.send('Welcome to Koikoi Blog WebSocket!');
+  ws.on('message', (message) => {
+    console.log('📩 Received:', message);
+    wss.clients.forEach(client => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(`Echo: ${message}`);
+      }
+    });
+  });
+  ws.on('close', () => console.log('❌ WebSocket client disconnected'));
+});
+
+server.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
 });
