@@ -347,3 +347,21 @@ app.get('/posts/:id', async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch post.' });
   }
 });
+// Fetch all posts by a specific user
+app.get('/users/:id/posts', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await pool.query(
+      `SELECT posts.*, users.username
+       FROM posts
+       JOIN users ON posts.user_id = users.id
+       WHERE posts.user_id=$1
+       ORDER BY posts.created_at DESC`,
+      [id]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Fetch user posts error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch user posts.' });
+  }
+});
