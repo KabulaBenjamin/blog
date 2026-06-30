@@ -288,3 +288,62 @@ app.post('/posts/:id/comment', async (req, res) => {
 server.listen(PORT, () => {
   console.log(`🚀 Server running smoothly on http://localhost:${PORT}`);
 });
+// Fetch a single post by ID
+app.get('/posts/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await pool.query(
+      `SELECT posts.*, users.username
+       FROM posts
+       JOIN users ON posts.user_id = users.id
+       WHERE posts.id=$1`,
+      [id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Post not found' });
+    }
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Fetch single post error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch post.' });
+  }
+});
+// Get engagement stats for a specific user
+app.get('/users/:id/stats', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await pool.query(
+      `SELECT 
+         COALESCE(SUM(likes),0) AS total_likes,
+         COALESCE(SUM(comments),0) AS total_comments,
+         COUNT(*) AS total_posts
+       FROM posts
+       WHERE user_id=$1`,
+      [id]
+    );
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('User stats error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch user stats.' });
+  }
+});
+// Fetch a single post by ID
+app.get('/posts/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await pool.query(
+      `SELECT posts.*, users.username
+       FROM posts
+       JOIN users ON posts.user_id = users.id
+       WHERE posts.id=$1`,
+      [id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Post not found' });
+    }
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Fetch single post error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch post.' });
+  }
+});
