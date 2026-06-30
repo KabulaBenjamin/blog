@@ -6,9 +6,14 @@ const fetch = require('node-fetch');
 const http = require('http');
 const WebSocket = require('ws');
 const multer = require('multer');
+const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Create HTTP server to bind both Express and WebSockets
+const server = http.createServer(app);
+const wss = new WebSocket.Server({ server });
 
 // Middleware
 app.use(express.json());
@@ -27,6 +32,24 @@ const pool = new Pool({
 pool.connect()
   .then(() => console.log('✅ Connected to PostgreSQL via Pool'))
   .catch(err => console.error('❌ DB connection error:', err));
+
+// WebSocket Connection Logic
+wss.on('connection', (ws) => {
+  console.log('📡 New WebSocket client connected');
+  ws.on('message', (message) => {
+    console.log(`📩 Received message: ${message}`);
+  });
+  ws.on('close', () => console.log('🔌 Client disconnected'));
+});
+
+// Broadcast helper for real-time updates
+const broadcast = (data) => {
+  wss.clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(JSON.stringify(data));
+    }
+  });
+};
 
 // Location middleware
 app.use(async (req, res, next) => {
@@ -75,7 +98,7 @@ app.get('/posts', async (req, res) => {
   }
 });
 
-// Create a new post (with file upload support)
+// Create a new post
 app.post('/posts', upload.single('media'), async (req, res) => {
   const { user_id, title, content, editor_type, live_link } = req.body;
   if (!user_id || !title || !content) {
@@ -86,7 +109,11 @@ app.post('/posts', upload.single('media'), async (req, res) => {
       'INSERT INTO posts (user_id, title, content, editor_type, live_link) VALUES ($1, $2, $3, $4, $5) RETURNING *',
       [user_id, title, content, editor_type || 'quill', live_link]
     );
-    res.status(201).json(result.rows[0]);
+    
+    const newPost = result.rows[0];
+    broadcast({ type: 'NEW_POST', data: newPost });
+
+    res.status(201).json(newPost);
   } catch (err) {
     console.error('Create post error:', err.message);
     res.status(500).json({ error: 'Failed to create post.' });
@@ -105,7 +132,11 @@ app.put('/posts/:id', upload.single('media'), async (req, res) => {
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Post not found' });
     }
-    res.json(result.rows[0]);
+    
+    const updatedPost = result.rows[0];
+    broadcast({ type: 'UPDATE_POST', data: updatedPost });
+
+    res.json(updatedPost);
   } catch (err) {
     console.error('Update post error:', err.message);
     res.status(500).json({ error: 'Failed to update post.' });
@@ -120,6 +151,9 @@ app.delete('/posts/:id', async (req, res) => {
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Post not found' });
     }
+    
+    broadcast({ type: 'DELETE_POST', id });
+
     res.json({ success: true, deleted: result.rows[0] });
   } catch (err) {
     console.error('Delete post error:', err.message);
@@ -211,28 +245,46 @@ app.get('/me/:id', async (req, res) => {
   }
 });
 
-// Create HTTP server and attach WebSocket
-const server = http.createServer(app);
-const wss = new WebSocket.Server({ server, path: '/ws' });
-
-wss.on('connection', (ws) => {
-  console.log('🔌 WebSocket client connected');
-  ws.send('Welcome to Koikoi Blog WebSocket!');
-  ws.on('message', (message) => {
-    console.log('📩 Received:', message);
-    wss.clients.forEach(client => {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(`Echo: ${message}`);
-      }
-    });
-  });
-  ws.on('close', () => console.log('❌ WebSocket client disconnected'));
-});
-
-server.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-});
-
 // Serve uploaded files statically
-const path = require('path');
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Like a post
+app.post('/posts/:id/like', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await pool.query(
+      'UPDATE posts SET likes = COALESCE(likes,0) + 1 WHERE id=$1 RETURNING *',
+      [id]
+    );
+    
+    broadcast({ type: 'LIKE_POST', data: result.rows[0] });
+    
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Like error:', err.message);
+    res.status(500).json({ error: 'Failed to like post.' });
+  }
+});
+
+// Comment a post (simple counter for now)
+app.post('/posts/:id/comment', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await pool.query(
+      'UPDATE posts SET comments = COALESCE(comments,0) + 1 WHERE id=$1 RETURNING *',
+      [id]
+    );
+    
+    broadcast({ type: 'COMMENT_POST', data: result.rows[0] });
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Comment error:', err.message);
+    res.status(500).json({ error: 'Failed to comment post.' });
+  }
+});
+
+// Start Server
+server.listen(PORT, () => {
+  console.log(`🚀 Server running smoothly on http://localhost:${PORT}`);
+});
