@@ -5,6 +5,7 @@ const cookieParser = require('cookie-parser');
 const fetch = require('node-fetch');
 const http = require('http');
 const WebSocket = require('ws');
+const multer = require('multer');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -13,6 +14,9 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 app.use(cors());
 app.use(cookieParser());
+
+// Multer setup for file uploads
+const upload = multer({ dest: 'uploads/' });
 
 // PostgreSQL connection pool
 const pool = new Pool({
@@ -59,9 +63,9 @@ app.get('/', (req, res) => {
 app.get('/posts', async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT posts.*, users.username 
-      FROM posts 
-      JOIN users ON posts.user_id = users.id 
+      SELECT posts.*, users.username
+      FROM posts
+      JOIN users ON posts.user_id = users.id
       ORDER BY posts.created_at DESC
     `);
     res.json(result.rows);
@@ -71,8 +75,8 @@ app.get('/posts', async (req, res) => {
   }
 });
 
-// Create a new post
-app.post('/posts', async (req, res) => {
+// Create a new post (with file upload support)
+app.post('/posts', upload.single('media'), async (req, res) => {
   const { user_id, title, content, editor_type, live_link } = req.body;
   if (!user_id || !title || !content) {
     return res.status(400).json({ error: 'User ID, title, and content are required.' });
@@ -90,7 +94,7 @@ app.post('/posts', async (req, res) => {
 });
 
 // Update a post
-app.put('/posts/:id', async (req, res) => {
+app.put('/posts/:id', upload.single('media'), async (req, res) => {
   const { id } = req.params;
   const { title, content, editor_type, live_link } = req.body;
   try {
