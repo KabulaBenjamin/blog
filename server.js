@@ -23,9 +23,9 @@ app.use(cookieParser());
 // Multer setup for file uploads
 const upload = multer({ dest: 'uploads/' });
 
-// PostgreSQL connection pool
+// PostgreSQL connection pool using Supabase
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  connectionString: process.env.SUPABASE_DATABASE_URL,
   ssl: { rejectUnauthorized: false }
 });
 
@@ -98,6 +98,66 @@ app.get('/posts', async (req, res) => {
   }
 });
 
+// Fetch a single post by ID
+app.get('/posts/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await pool.query(
+      `SELECT posts.*, users.username
+       FROM posts
+       JOIN users ON posts.user_id = users.id
+       WHERE posts.id=$1`,
+      [id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Post not found' });
+    }
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Fetch single post error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch post.' });
+  }
+});
+
+// Fetch all posts by a specific user
+app.get('/users/:id/posts', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await pool.query(
+      `SELECT posts.*, users.username
+       FROM posts
+       JOIN users ON posts.user_id = users.id
+       WHERE posts.user_id=$1
+       ORDER BY posts.created_at DESC`,
+      [id]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Fetch user posts error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch user posts.' });
+  }
+});
+
+// Get engagement stats for a specific user
+app.get('/users/:id/stats', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await pool.query(
+      `SELECT
+         COALESCE(SUM(likes),0) AS total_likes,
+         COALESCE(SUM(comments),0) AS total_comments,
+         COUNT(*) AS total_posts
+       FROM posts
+       WHERE user_id=$1`,
+      [id]
+    );
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('User stats error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch user stats.' });
+  }
+});
+
 // Create a new post
 app.post('/posts', upload.single('media'), async (req, res) => {
   const { user_id, title, content, editor_type, live_link } = req.body;
@@ -109,7 +169,7 @@ app.post('/posts', upload.single('media'), async (req, res) => {
       'INSERT INTO posts (user_id, title, content, editor_type, live_link) VALUES ($1, $2, $3, $4, $5) RETURNING *',
       [user_id, title, content, editor_type || 'quill', live_link]
     );
-    
+
     const newPost = result.rows[0];
     broadcast({ type: 'NEW_POST', data: newPost });
 
@@ -132,7 +192,7 @@ app.put('/posts/:id', upload.single('media'), async (req, res) => {
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Post not found' });
     }
-    
+
     const updatedPost = result.rows[0];
     broadcast({ type: 'UPDATE_POST', data: updatedPost });
 
@@ -151,7 +211,7 @@ app.delete('/posts/:id', async (req, res) => {
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Post not found' });
     }
-    
+
     broadcast({ type: 'DELETE_POST', id });
 
     res.json({ success: true, deleted: result.rows[0] });
@@ -256,9 +316,9 @@ app.post('/posts/:id/like', async (req, res) => {
       'UPDATE posts SET likes = COALESCE(likes,0) + 1 WHERE id=$1 RETURNING *',
       [id]
     );
-    
+
     broadcast({ type: 'LIKE_POST', data: result.rows[0] });
-    
+
     res.json(result.rows[0]);
   } catch (err) {
     console.error('Like error:', err.message);
@@ -274,7 +334,7 @@ app.post('/posts/:id/comment', async (req, res) => {
       'UPDATE posts SET comments = COALESCE(comments,0) + 1 WHERE id=$1 RETURNING *',
       [id]
     );
-    
+
     broadcast({ type: 'COMMENT_POST', data: result.rows[0] });
 
     res.json(result.rows[0]);
@@ -284,84 +344,7 @@ app.post('/posts/:id/comment', async (req, res) => {
   }
 });
 
-// Start Server
+// Start Server safely at the very bottom
 server.listen(PORT, () => {
   console.log(`🚀 Server running smoothly on http://localhost:${PORT}`);
-});
-// Fetch a single post by ID
-app.get('/posts/:id', async (req, res) => {
-  const { id } = req.params;
-  try {
-    const result = await pool.query(
-      `SELECT posts.*, users.username
-       FROM posts
-       JOIN users ON posts.user_id = users.id
-       WHERE posts.id=$1`,
-      [id]
-    );
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Post not found' });
-    }
-    res.json(result.rows[0]);
-  } catch (err) {
-    console.error('Fetch single post error:', err.message);
-    res.status(500).json({ error: 'Failed to fetch post.' });
-  }
-});
-// Get engagement stats for a specific user
-app.get('/users/:id/stats', async (req, res) => {
-  const { id } = req.params;
-  try {
-    const result = await pool.query(
-      `SELECT 
-         COALESCE(SUM(likes),0) AS total_likes,
-         COALESCE(SUM(comments),0) AS total_comments,
-         COUNT(*) AS total_posts
-       FROM posts
-       WHERE user_id=$1`,
-      [id]
-    );
-    res.json(result.rows[0]);
-  } catch (err) {
-    console.error('User stats error:', err.message);
-    res.status(500).json({ error: 'Failed to fetch user stats.' });
-  }
-});
-// Fetch a single post by ID
-app.get('/posts/:id', async (req, res) => {
-  const { id } = req.params;
-  try {
-    const result = await pool.query(
-      `SELECT posts.*, users.username
-       FROM posts
-       JOIN users ON posts.user_id = users.id
-       WHERE posts.id=$1`,
-      [id]
-    );
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Post not found' });
-    }
-    res.json(result.rows[0]);
-  } catch (err) {
-    console.error('Fetch single post error:', err.message);
-    res.status(500).json({ error: 'Failed to fetch post.' });
-  }
-});
-// Fetch all posts by a specific user
-app.get('/users/:id/posts', async (req, res) => {
-  const { id } = req.params;
-  try {
-    const result = await pool.query(
-      `SELECT posts.*, users.username
-       FROM posts
-       JOIN users ON posts.user_id = users.id
-       WHERE posts.user_id=$1
-       ORDER BY posts.created_at DESC`,
-      [id]
-    );
-    res.json(result.rows);
-  } catch (err) {
-    console.error('Fetch user posts error:', err.message);
-    res.status(500).json({ error: 'Failed to fetch user posts.' });
-  }
 });
