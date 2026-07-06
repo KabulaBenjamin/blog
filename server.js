@@ -5,14 +5,14 @@ const cookieParser = require('cookie-parser');
 const http = require('http');
 const WebSocket = require('ws');
 const multer = require('multer');
-const path = require('path'); // Fixed: Moved to top
+const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Create HTTP server first to safely bind both Express and WebSockets
 const server = http.createServer(app);
-// Fixed: Removed path: '/ws' to allow native proxying on Render
+// Omitted explicit subpath mapping to allow standard secure reverse proxying on Render
 const wss = new WebSocket.Server({ server });
 
 // Middleware
@@ -57,7 +57,7 @@ wss.on('connection', (ws) => {
   ws.on('close', () => console.log('❌ WebSocket client disconnected'));
 });
 
-// Fixed Location middleware: Safe, non-blocking execution flow
+// Location tracking middleware: Safe, completely non-blocking execution flow
 app.use(async (req, res, next) => {
   try {
     const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
@@ -108,6 +108,27 @@ app.get('/posts', async (req, res) => {
   } catch (err) {
     console.error('Fetch posts error:', err.message);
     res.status(500).json({ error: 'Failed to fetch posts.' });
+  }
+});
+
+// Fetch a single post by ID (Integrated cleanly here)
+app.get('/posts/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await pool.query(`
+      SELECT posts.*, users.username
+      FROM posts
+      JOIN users ON posts.user_id = users.id
+      WHERE posts.id = $1
+    `, [id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Post not found' });
+    }
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Fetch single post error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch post.' });
   }
 });
 
