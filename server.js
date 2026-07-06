@@ -12,8 +12,9 @@ const PORT = process.env.PORT || 3000;
 
 // Create HTTP server first to safely bind both Express and WebSockets
 const server = http.createServer(app);
-// Omitted explicit subpath mapping to allow standard secure reverse proxying on Render
-const wss = new WebSocket.Server({ server });
+
+// Fixed: Explicit path added to clear Render handshake reverse-proxy blocks cleanly
+const wss = new WebSocket.Server({ server, path: '/websocket' });
 
 // Middleware
 app.use(express.json());
@@ -47,7 +48,7 @@ const broadcast = (data) => {
 
 // WebSocket Event Handling
 wss.on('connection', (ws) => {
-  console.log('🔌 WebSocket client connected');
+  console.log('🔌 WebSocket client connected via /websocket');
   ws.send(JSON.stringify({ type: 'WELCOME', message: 'Welcome to Koikoi Blog WebSocket!' }));
   
   ws.on('message', (message) => {
@@ -111,7 +112,7 @@ app.get('/posts', async (req, res) => {
   }
 });
 
-// Fetch a single post by ID (Integrated cleanly here)
+// Fetch a single post by ID 
 app.get('/posts/:id', async (req, res) => {
   const { id } = req.params;
   try {
