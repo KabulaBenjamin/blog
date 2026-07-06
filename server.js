@@ -12,7 +12,8 @@ const PORT = process.env.PORT || 3000;
 
 // Create HTTP server first to safely bind both Express and WebSockets
 const server = http.createServer(app);
-const wss = new WebSocket.Server({ server, path: '/ws' });
+// Fixed: Removed path: '/ws' to allow native proxying on Render
+const wss = new WebSocket.Server({ server });
 
 // Middleware
 app.use(express.json());
@@ -56,7 +57,7 @@ wss.on('connection', (ws) => {
   ws.on('close', () => console.log('❌ WebSocket client disconnected'));
 });
 
-// Fixed Location middleware: Safe, non-blocking fallback execution
+// Fixed Location middleware: Safe, non-blocking execution flow
 app.use(async (req, res, next) => {
   try {
     const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
@@ -86,7 +87,6 @@ app.use(async (req, res, next) => {
     console.error('Optional location tracking skipped:', err.message);
     req.userLocation = null;
   }
-  // next() is guaranteed to execute immediately without waiting for API timeouts
   next();
 });
 
@@ -124,7 +124,7 @@ app.post('/posts', upload.single('media'), async (req, res) => {
     );
     
     const newPost = result.rows[0];
-    broadcast({ action: 'CREATE', post: newPost }); // Broadcast live update
+    broadcast({ action: 'CREATE', post: newPost });
     
     res.status(201).json(newPost);
   } catch (err) {
@@ -147,7 +147,7 @@ app.put('/posts/:id', upload.single('media'), async (req, res) => {
     }
     
     const updatedPost = result.rows[0];
-    broadcast({ action: 'UPDATE', post: updatedPost }); // Broadcast live update
+    broadcast({ action: 'UPDATE', post: updatedPost });
     
     res.json(updatedPost);
   } catch (err) {
@@ -165,7 +165,7 @@ app.delete('/posts/:id', async (req, res) => {
       return res.status(404).json({ error: 'Post not found' });
     }
     
-    broadcast({ action: 'DELETE', id }); // Broadcast live update
+    broadcast({ action: 'DELETE', id });
     
     res.json({ success: true, deleted: result.rows[0] });
   } catch (err) {
