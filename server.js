@@ -7,6 +7,10 @@ const WebSocket = require('ws');
 const multer = require('multer');
 const path = require('path');
 
+// Cloudinary Integrations for Persistent Media Storage
+const cloudinary = require('cloudinary').v2;
+const { CloudinaryStorage } = require('multer-storage-cloudinary');
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -16,10 +20,10 @@ const server = http.createServer(app);
 // Fixed: Explicit path added to clear Render handshake reverse-proxy blocks cleanly
 const wss = new WebSocket.Server({ server, path: '/websocket' });
 
-// Middleware
+// Middleware Configuration
 app.use(express.json());
 
-// ✅ FIXED: Configured CORS to dynamically mirror origins and authorize credentials
+// Configured CORS to dynamically mirror origins and authorize credentials securely
 app.use(cors({
   origin: true,
   credentials: true
@@ -27,23 +31,38 @@ app.use(cors({
 
 app.use(cookieParser());
 
-// Serve uploaded files statically
+// Serve local uploaded files statically (Maintains legacy local image links)
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// Multer setup for file uploads
-const upload = multer({ dest: 'uploads/' });
+// ==========================================
+// CLOUDINARY ENGINE CONFIGURATION
+// ==========================================
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET
+});
+
+const storage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: 'koikoi_blog_media',
+    allowed_formats: ['jpg', 'png', 'jpeg', 'webp', 'gif']
+  },
+});
+
+const upload = multer({ storage: storage });
 
 // ==========================================
-// NEW: Standalone Image Upload Endpoint for Quill
+// IMAGE UPLOAD ENDPOINT (Optimized for Quill)
 // ==========================================
 app.post('/upload-image', upload.single('media'), (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No image file uploaded.' });
   }
 
-  // Returns the relative URL string pointing to your static uploads folder
-  const imageUrl = `/uploads/${req.file.filename}`;
-  res.json({ url: imageUrl });
+  // ✅ Returns the secure HTTPS persistent Cloudinary URL instead of a local file path
+  res.json({ url: req.file.path });
 });
 
 // PostgreSQL connection pool
@@ -184,7 +203,7 @@ app.put('/posts/:id', upload.single('media'), async (req, res) => {
       [title, content, editor_type || 'quill', live_link, id]
     );
     if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Post not found' });
+      return Hookres.status(404).json({ error: 'Post not found' });
     }
 
     const updatedPost = result.rows[0];
