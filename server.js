@@ -27,6 +27,19 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 // Multer setup for file uploads
 const upload = multer({ dest: 'uploads/' });
 
+// ==========================================
+// NEW: Standalone Image Upload Endpoint for Quill
+// ==========================================
+app.post('/upload-image', upload.single('media'), (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'No image file uploaded.' });
+  }
+  
+  // Returns the relative URL string pointing to your static uploads folder
+  const imageUrl = `/uploads/${req.file.filename}`;
+  res.json({ url: imageUrl });
+});
+
 // PostgreSQL connection pool
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -50,11 +63,11 @@ const broadcast = (data) => {
 wss.on('connection', (ws) => {
   console.log('🔌 WebSocket client connected via /websocket');
   ws.send(JSON.stringify({ type: 'WELCOME', message: 'Welcome to Koikoi Blog WebSocket!' }));
-  
+
   ws.on('message', (message) => {
     console.log('📩 Received custom message:', message.toString());
   });
-  
+
   ws.on('close', () => console.log('❌ WebSocket client disconnected'));
 });
 
@@ -62,13 +75,13 @@ wss.on('connection', (ws) => {
 app.use(async (req, res, next) => {
   try {
     const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
-    
+
     // Dynamic import to bypass ESM node-fetch limitation safely in CommonJS
     const fetch = (...args) => import('node-fetch').then(({default: f}) => f(...args));
-    
+
     // Fetch geo data with a strict catch to ensure it never hangs the routing lifecycle
     const response = await fetch(`https://ipapi.co/${ip}/json/`).catch(() => null);
-    
+
     if (response && response.ok) {
       const data = await response.json();
       req.userLocation = {
@@ -112,7 +125,7 @@ app.get('/posts', async (req, res) => {
   }
 });
 
-// Fetch a single post by ID 
+// Fetch a single post by ID
 app.get('/posts/:id', async (req, res) => {
   const { id } = req.params;
   try {
@@ -144,10 +157,10 @@ app.post('/posts', upload.single('media'), async (req, res) => {
       'INSERT INTO posts (user_id, title, content, editor_type, live_link) VALUES ($1, $2, $3, $4, $5) RETURNING *',
       [user_id, title, content, editor_type || 'quill', live_link]
     );
-    
+
     const newPost = result.rows[0];
     broadcast({ action: 'CREATE', post: newPost });
-    
+
     res.status(201).json(newPost);
   } catch (err) {
     console.error('Create post error:', err.message);
@@ -167,10 +180,10 @@ app.put('/posts/:id', upload.single('media'), async (req, res) => {
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Post not found' });
     }
-    
+
     const updatedPost = result.rows[0];
     broadcast({ action: 'UPDATE', post: updatedPost });
-    
+
     res.json(updatedPost);
   } catch (err) {
     console.error('Update post error:', err.message);
@@ -186,9 +199,9 @@ app.delete('/posts/:id', async (req, res) => {
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Post not found' });
     }
-    
+
     broadcast({ action: 'DELETE', id });
-    
+
     res.json({ success: true, deleted: result.rows[0] });
   } catch (err) {
     console.error('Delete post error:', err.message);
