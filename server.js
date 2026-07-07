@@ -18,7 +18,13 @@ const wss = new WebSocket.Server({ server, path: '/websocket' });
 
 // Middleware
 app.use(express.json());
-app.use(cors());
+
+// ✅ FIXED: Configured CORS to dynamically mirror origins and authorize credentials
+app.use(cors({
+  origin: true,
+  credentials: true
+}));
+
 app.use(cookieParser());
 
 // Serve uploaded files statically
@@ -34,7 +40,7 @@ app.post('/upload-image', upload.single('media'), (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No image file uploaded.' });
   }
-  
+
   // Returns the relative URL string pointing to your static uploads folder
   const imageUrl = `/uploads/${req.file.filename}`;
   res.json({ url: imageUrl });
