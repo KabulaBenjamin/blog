@@ -6,6 +6,8 @@ const http = require('http');
 const WebSocket = require('ws');
 const multer = require('multer');
 const path = require('path');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 
 // Cloudinary Integrations for Persistent Media Storage
 const cloudinary = require('cloudinary').v2;
@@ -13,6 +15,7 @@ const { CloudinaryStorage } = require('multer-storage-cloudinary');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const JWT_SECRET = process.env.JWT_SECRET || 'koikoi_blog_super_secret_fallback_key';
 
 // Create HTTP server first to safely bind both Express and WebSockets
 const server = http.createServer(app);
@@ -60,22 +63,35 @@ app.post('/upload-image', upload.single('media'), (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No image file uploaded.' });
   }
-
-  // ✅ Returns the secure HTTPS persistent Cloudinary URL instead of a local file path
   res.json({ url: req.file.path });
 });
 
-// PostgreSQL connection pool
+// ==========================================
+// POSTGRESQL INITIALIZATION & INDEXES
+// ==========================================
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false }
 });
 
 pool.connect()
-  .then(() => console.log('✅ Connected to PostgreSQL via Pool'))
+  .then(async () => {
+    console.log('✅ Connected to PostgreSQL via Pool');
+    try {
+      // Create indexes automatically on startup for instant lookups
+      await pool.query('CREATE INDEX IF NOT EXISTS idx_posts_user_id ON posts(user_id);');
+      await pool.query('CREATE INDEX IF NOT EXISTS idx_posts_created_at ON posts(created_at DESC);');
+      await pool.query('CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);');
+      console.log('⚡ High-efficiency database optimization indexes verified.');
+    } catch (indexErr) {
+      console.error('⚠️ Index creation warning:', indexErr.message);
+    }
+  })
   .catch(err => console.error('❌ DB connection error:', err));
 
-// Real-time broadcast helper function
+// ==========================================
+// WEBSOCKET BROADCAST & PING-PONG HEARTBEAT
+// ==========================================
 const broadcast = (data) => {
   wss.clients.forEach(client => {
     if (client.readyState === WebSocket.OPEN) {
@@ -84,9 +100,15 @@ const broadcast = (data) => {
   });
 };
 
-// WebSocket Event Handling
+function heartbeat() {
+  this.isAlive = true;
+}
+
 wss.on('connection', (ws) => {
   console.log('🔌 WebSocket client connected via /websocket');
+  ws.isAlive = true;
+  ws.on('pong', heartbeat);
+
   ws.send(JSON.stringify({ type: 'WELCOME', message: 'Welcome to Koikoi Blog WebSocket!' }));
 
   ws.on('message', (message) => {
@@ -96,15 +118,24 @@ wss.on('connection', (ws) => {
   ws.on('close', () => console.log('❌ WebSocket client disconnected'));
 });
 
-// Location tracking middleware: Safe, completely non-blocking execution flow
+// Periodic actively driven sweep tracking broken client pipes
+const interval = setInterval(() => {
+  wss.clients.forEach((ws) => {
+    if (ws.isAlive === false) return ws.terminate();
+    ws.isAlive = false;
+    ws.ping();
+  });
+}, 30000);
+
+wss.on('close', () => clearInterval(interval));
+
+// ==========================================
+// LOCATION TRACKING MIDDLEWARE
+// ==========================================
 app.use(async (req, res, next) => {
   try {
     const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
-
-    // Dynamic import to bypass ESM node-fetch limitation safely in CommonJS
     const fetch = (...args) => import('node-fetch').then(({default: f}) => f(...args));
-
-    // Fetch geo data with a strict catch to ensure it never hangs the routing lifecycle
     const response = await fetch(`https://ipapi.co/${ip}/json/`).catch(() => null);
 
     if (response && response.ok) {
@@ -129,7 +160,9 @@ app.use(async (req, res, next) => {
   next();
 });
 
-// Root route
+// ==========================================
+// APP CORE ROUTING INFRASTRUCTURE
+// ==========================================
 app.get('/', (req, res) => {
   res.send('Welcome to Koikoi Blog API! Try /posts to see posts.');
 });
@@ -171,7 +204,7 @@ app.get('/posts/:id', async (req, res) => {
   }
 });
 
-// Create a new post (with real-time broadcasting)
+// Create a new post
 app.post('/posts', upload.single('media'), async (req, res) => {
   const { user_id, title, content, editor_type, live_link } = req.body;
   if (!user_id || !title || !content) {
@@ -185,7 +218,6 @@ app.post('/posts', upload.single('media'), async (req, res) => {
 
     const newPost = result.rows[0];
     broadcast({ action: 'CREATE', post: newPost });
-
     res.status(201).json(newPost);
   } catch (err) {
     console.error('Create post error:', err.message);
@@ -193,7 +225,7 @@ app.post('/posts', upload.single('media'), async (req, res) => {
   }
 });
 
-// Update a post (with real-time broadcasting)
+// Update a post (Fixed legacy typo: 'Hookres')
 app.put('/posts/:id', upload.single('media'), async (req, res) => {
   const { id } = req.params;
   const { title, content, editor_type, live_link } = req.body;
@@ -203,12 +235,11 @@ app.put('/posts/:id', upload.single('media'), async (req, res) => {
       [title, content, editor_type || 'quill', live_link, id]
     );
     if (result.rows.length === 0) {
-      return Hookres.status(404).json({ error: 'Post not found' });
+      return res.status(404).json({ error: 'Post not found' });
     }
 
     const updatedPost = result.rows[0];
     broadcast({ action: 'UPDATE', post: updatedPost });
-
     res.json(updatedPost);
   } catch (err) {
     console.error('Update post error:', err.message);
@@ -216,7 +247,7 @@ app.put('/posts/:id', upload.single('media'), async (req, res) => {
   }
 });
 
-// Delete a post (with real-time broadcasting)
+// Delete a post
 app.delete('/posts/:id', async (req, res) => {
   const { id } = req.params;
   try {
@@ -226,7 +257,6 @@ app.delete('/posts/:id', async (req, res) => {
     }
 
     broadcast({ action: 'DELETE', id });
-
     res.json({ success: true, deleted: result.rows[0] });
   } catch (err) {
     console.error('Delete post error:', err.message);
@@ -234,50 +264,75 @@ app.delete('/posts/:id', async (req, res) => {
   }
 });
 
-// Signup
+// ==========================================
+// SECURE AUTHENTICATION ENDPOINTS
+// ==========================================
+
+// Helper function to issue uniform secure JWT session cookies
+const issueSessionCookie = (res, user) => {
+  const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: '7d' });
+  res.cookie('token', token, {
+    httpOnly: true,
+    secure: true, // Configured perfectly for Render HTTPS layers
+    sameSite: 'none',
+    maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+  });
+};
+
+// Secure Signup
 app.post('/signup', async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) {
     return res.status(400).json({ error: 'Username and password are required.' });
   }
   try {
+    const hashedPassword = await bcrypt.hash(password, 10);
     const result = await pool.query(
       'INSERT INTO users (username, password) VALUES ($1, $2) RETURNING id, username',
-      [username, password]
+      [username, hashedPassword]
     );
-    res.json(result.rows[0]);
+    
+    const user = result.rows[0];
+    issueSessionCookie(res, user);
+    res.json({ success: true, user });
   } catch (err) {
     console.error('Signup error:', err.message);
     if (err.code === '23505') {
-      return res.status(409).json({ error: 'Username already exists. Please choose another.' });
+      return res.status(409).json({ error: 'Username already exists.' });
     }
-    res.status(500).json({ error: 'Internal server error. Please try again later.' });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
-// Signin
+// Secure Signin
 app.post('/signin', async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) {
     return res.status(400).json({ error: 'Username and password are required.' });
   }
   try {
-    const result = await pool.query(
-      'SELECT id, username, password FROM users WHERE username=$1 AND password=$2',
-      [username, password]
-    );
-    if (result.rows.length > 0) {
-      res.json({ success: true, user: { id: result.rows[0].id, username: result.rows[0].username } });
-    } else {
-      res.status(401).json({ success: false, error: 'Invalid username or password.' });
+    const result = await pool.query('SELECT * FROM users WHERE username=$1', [username]);
+    if (result.rows.length === 0) {
+      return res.status(401).json({ success: false, error: 'Invalid username or password.' });
     }
+
+    const user = result.rows[0];
+    const isMatch = await bcrypt.compare(password, user.password);
+
+    if (!isMatch) {
+      return res.status(401).json({ success: false, error: 'Invalid username or password.' });
+    }
+
+    const sanitizedUser = { id: user.id, username: user.username };
+    issueSessionCookie(res, sanitizedUser);
+    res.json({ success: true, user: sanitizedUser });
   } catch (err) {
     console.error('Signin error:', err.message);
-    res.status(500).json({ error: 'Internal server error. Please try again later.' });
+    res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
-// Signup or auto-create user and signin
+// Secure Signup-or-Signin
 app.post('/signup-or-signin', async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) {
@@ -285,22 +340,38 @@ app.post('/signup-or-signin', async (req, res) => {
   }
   try {
     const existing = await pool.query('SELECT * FROM users WHERE username=$1', [username]);
+    
     if (existing.rows.length > 0) {
-      if (existing.rows[0].password === password) {
-        return res.json({ success: true, user: { id: existing.rows[0].id, username: existing.rows[0].username } });
+      const user = existing.rows[0];
+      const isMatch = await bcrypt.compare(password, user.password);
+      if (isMatch) {
+        const sanitizedUser = { id: user.id, username: user.username };
+        issueSessionCookie(res, sanitizedUser);
+        return res.json({ success: true, user: sanitizedUser });
       } else {
         return res.status(401).json({ error: 'Password mismatch.' });
       }
     }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
     const result = await pool.query(
       'INSERT INTO users (username, password) VALUES ($1, $2) RETURNING id, username',
-      [username, password]
+      [username, hashedPassword]
     );
-    res.json({ success: true, user: result.rows[0] });
+    
+    const newUser = result.rows[0];
+    issueSessionCookie(res, newUser);
+    res.json({ success: true, user: newUser });
   } catch (err) {
     console.error('Signup-or-signin error:', err.message);
     res.status(500).json({ error: 'Internal server error.' });
   }
+});
+
+// Clean Logout Endpoint
+app.post('/logout', (req, res) => {
+  res.clearCookie('token', { httpOnly: true, secure: true, sameSite: 'none' });
+  res.json({ success: true, message: 'Logged out cleanly.' });
 });
 
 // Fetch current user details by ID
