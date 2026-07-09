@@ -225,7 +225,7 @@ app.post('/posts', upload.single('media'), async (req, res) => {
   }
 });
 
-// Update a post (Fixed legacy typo: 'Hookres')
+// Update a post
 app.put('/posts/:id', upload.single('media'), async (req, res) => {
   const { id } = req.params;
   const { title, content, editor_type, live_link } = req.body;
@@ -247,10 +247,73 @@ app.put('/posts/:id', upload.single('media'), async (req, res) => {
   }
 });
 
-// Delete a post
+// 👍 NEW: ATOMIC LIKE INCREMENT ROUTE
+app.post('/posts/:id/like', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await pool.query(
+      'UPDATE posts SET likes = COALESCE(likes, 0) + 1 WHERE id = $1 RETURNING *',
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Post not found' });
+    }
+
+    const updatedPost = result.rows[0];
+    const userLookup = await pool.query('SELECT username FROM users WHERE id = $1', [updatedPost.user_id]);
+    updatedPost.username = userLookup.rows[0]?.username || 'Unknown';
+
+    broadcast({ action: 'UPDATE', post: updatedPost });
+    res.json(updatedPost);
+  } catch (err) {
+    console.error('Like tracking exception:', err.message);
+    res.status(500).json({ error: 'Failed to process like event.' });
+  }
+});
+
+// 💬 NEW: PERSISTENT COMMENTS ROUTE (JSONB Engine)
+app.post('/posts/:id/comment', async (req, res) => {
+  const { id } = req.params;
+  const { text, username } = req.body;
+
+  if (!text) {
+    return res.status(400).json({ error: 'Comment content cannot be blank.' });
+  }
+
+  try {
+    const result = await pool.query(
+      `UPDATE posts 
+       SET comments = COALESCE(comments, '[]'::jsonb) || jsonb_build_array(
+         jsonb_build_object('id', extract(epoch from now()), 'username', $1::text, 'text', $2::text)
+       )
+       WHERE id = $3 RETURNING *`,
+      [username || 'Anonymous', text, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Post not found' });
+    }
+
+    const updatedPost = result.rows[0];
+    const userLookup = await pool.query('SELECT username FROM users WHERE id = $1', [updatedPost.user_id]);
+    updatedPost.username = userLookup.rows[0]?.username || 'Unknown';
+
+    broadcast({ action: 'UPDATE', post: updatedPost });
+    res.json(updatedPost);
+  } catch (err) {
+    console.error('Comment process tracking exception:', err.message);
+    res.status(500).json({ error: 'Failed to save comment entry.' });
+  }
+});
+
+// 🗑️ OPTIMIZED: CASCADE DELETE ROUTE
 app.delete('/posts/:id', async (req, res) => {
   const { id } = req.params;
   try {
+    // Drop references in secondary relational structures if any exist to clear FKEY validation limits
+    await pool.query('DELETE FROM comments WHERE post_id = $1').catch(() => null);
+
     const result = await pool.query('DELETE FROM posts WHERE id=$1 RETURNING *', [id]);
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Post not found' });
@@ -268,14 +331,13 @@ app.delete('/posts/:id', async (req, res) => {
 // SECURE AUTHENTICATION ENDPOINTS
 // ==========================================
 
-// Helper function to issue uniform secure JWT session cookies
 const issueSessionCookie = (res, user) => {
   const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: '7d' });
   res.cookie('token', token, {
     httpOnly: true,
-    secure: true, // Configured perfectly for Render HTTPS layers
+    secure: true, 
     sameSite: 'none',
-    maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+    maxAge: 7 * 24 * 60 * 60 * 1000 
   });
 };
 
@@ -391,5 +453,5 @@ app.get('/me/:id', async (req, res) => {
 
 // Start Server cleanly bound to the HTTP + WS setup
 server.listen(PORT, () => {
-  console.log(`🚀 Server running smoothly on http://localhost:${PORT}`);
+  console.log(`🚀 Server running smoothly on port ${PORT}`);
 });

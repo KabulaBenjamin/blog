@@ -8,3 +8,5 @@ public/uploads/*.gif
 public/uploads/*.webp
 *.log
 .DS_Store
+*.sql
+*.csv
