@@ -10,3 +10,6 @@ public/uploads/*.webp
 .DS_Store
 *.sql
 *.csv
+*.mp4
+*.webm
+*.pdf
