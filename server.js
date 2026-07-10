@@ -67,11 +67,14 @@ app.post('/upload-image', upload.single('media'), (req, res) => {
 });
 
 // ==========================================
-// POSTGRESQL INITIALIZATION & INDEXES
+// POSTGRESQL INITIALIZATION & SSL FIX
 // ==========================================
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
+  ssl: { 
+    // 🛡️ Fixes the SELF_SIGNED_CERT_IN_CHAIN error by trusting Supabase's pooler certificates
+    rejectUnauthorized: false 
+  }
 });
 
 pool.connect()
@@ -247,7 +250,7 @@ app.put('/posts/:id', upload.single('media'), async (req, res) => {
   }
 });
 
-// 👍 NEW: ATOMIC LIKE INCREMENT ROUTE
+// 👍 ATOMIC LIKE INCREMENT ROUTE
 app.post('/posts/:id/like', async (req, res) => {
   const { id } = req.params;
   try {
@@ -272,7 +275,7 @@ app.post('/posts/:id/like', async (req, res) => {
   }
 });
 
-// 💬 NEW: PERSISTENT COMMENTS ROUTE (JSONB Engine)
+// 💬 PERSISTENT COMMENTS ROUTE (JSONB Engine)
 app.post('/posts/:id/comment', async (req, res) => {
   const { id } = req.params;
   const { text, username } = req.body;
@@ -307,7 +310,7 @@ app.post('/posts/:id/comment', async (req, res) => {
   }
 });
 
-// 🗑️ OPTIMIZED: CASCADE DELETE ROUTE
+// 🗑️ CASCADE DELETE ROUTE
 app.delete('/posts/:id', async (req, res) => {
   const { id } = req.params;
   try {
