@@ -231,7 +231,7 @@ app.post('/posts', upload.single('media'), async (req, res) => {
   }
 });
 
-// Update a post
+// ✏️ UPDATE A POST (Fixed & Optimized)
 app.put('/posts/:id', upload.single('media'), async (req, res) => {
   const { id } = req.params;
   const { title, content, editor_type, live_link } = req.body;
@@ -245,6 +245,11 @@ app.put('/posts/:id', upload.single('media'), async (req, res) => {
     }
 
     const updatedPost = result.rows[0];
+    
+    // Fetch username so the frontend WebSocket can render the author name immediately
+    const userLookup = await pool.query('SELECT username FROM users WHERE id = $1', [updatedPost.user_id]);
+    updatedPost.username = userLookup.rows[0]?.username || 'Unknown';
+
     broadcast({ action: 'UPDATE', post: updatedPost });
     res.json(updatedPost);
   } catch (err) {
@@ -313,19 +318,18 @@ app.post('/posts/:id/comment', async (req, res) => {
   }
 });
 
-// 🗑️ CASCADE DELETE ROUTE
+// 🗑️ CASCADE DELETE ROUTE (Fixed for internal JSONB comments architecture)
 app.delete('/posts/:id', async (req, res) => {
   const { id } = req.params;
   try {
-    await pool.query('DELETE FROM comments WHERE post_id = $1').catch(() => null);
-
+    // Corrected: Comments are embedded inside the post rows, so we only need to remove the post row itself!
     const result = await pool.query('DELETE FROM posts WHERE id=$1 RETURNING *', [id]);
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Post not found' });
     }
 
     broadcast({ action: 'DELETE', id });
-    res.json({ success: true, deleted: result.rows[0] });
+    res.json({ success: true, message: 'Post and inline comments removed completely.', deleted: result.rows[0] });
   } catch (err) {
     console.error('Delete post error:', err.message);
     res.status(500).json({ error: 'Failed to delete post.' });
