@@ -9,7 +9,6 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
 // 🛡️ CRITICAL FIX: Configure pg engine defaults BEFORE pulling in the Pool module
-// This overrides the strict connection string validation order and fixes SELF_SIGNED_CERT_IN_CHAIN
 const pg = require('pg');
 pg.defaults.ssl = { rejectUnauthorized: false };
 const { Pool } = pg;
@@ -72,10 +71,13 @@ app.post('/upload-image', upload.single('media'), (req, res) => {
 });
 
 // ==========================================
-// POSTGRESQL INITIALIZATION
+// POSTGRESQL INITIALIZATION (Fixed for Supabase SSL)
 // ==========================================
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL
+  connectionString: process.env.DATABASE_URL,
+  ssl: {
+    rejectUnauthorized: false
+  }
 });
 
 pool.connect()
