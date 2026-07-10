@@ -1,5 +1,4 @@
 const express = require('express');
-const { Pool } = require('pg');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const http = require('http');
@@ -8,6 +7,12 @@ const multer = require('multer');
 const path = require('path');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+
+// 🛡️ CRITICAL FIX: Configure pg engine defaults BEFORE pulling in the Pool module
+// This overrides the strict connection string validation order and fixes SELF_SIGNED_CERT_IN_CHAIN
+const pg = require('pg');
+pg.defaults.ssl = { rejectUnauthorized: false };
+const { Pool } = pg;
 
 // Cloudinary Integrations for Persistent Media Storage
 const cloudinary = require('cloudinary').v2;
@@ -67,14 +72,10 @@ app.post('/upload-image', upload.single('media'), (req, res) => {
 });
 
 // ==========================================
-// POSTGRESQL INITIALIZATION & SSL FIX
+// POSTGRESQL INITIALIZATION
 // ==========================================
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { 
-    // 🛡️ Fixes the SELF_SIGNED_CERT_IN_CHAIN error by trusting Supabase's pooler certificates
-    rejectUnauthorized: false 
-  }
+  connectionString: process.env.DATABASE_URL
 });
 
 pool.connect()
@@ -314,7 +315,6 @@ app.post('/posts/:id/comment', async (req, res) => {
 app.delete('/posts/:id', async (req, res) => {
   const { id } = req.params;
   try {
-    // Drop references in secondary relational structures if any exist to clear FKEY validation limits
     await pool.query('DELETE FROM comments WHERE post_id = $1').catch(() => null);
 
     const result = await pool.query('DELETE FROM posts WHERE id=$1 RETURNING *', [id]);
