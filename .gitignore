@@ -13,3 +13,5 @@ public/uploads/*.webp
 *.mp4
 *.webm
 *.pdf
+node_modules/
+.env
