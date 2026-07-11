@@ -8,7 +8,7 @@ const path = require('path');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
-// 🛡️ CRITICAL FIX: Configure pg engine defaults BEFORE pulling in the Pool module
+// Configure pg engine defaults before initialization
 const pg = require('pg');
 pg.defaults.ssl = { rejectUnauthorized: false };
 const { Pool } = pg;
@@ -19,26 +19,24 @@ const { CloudinaryStorage } = require('multer-storage-cloudinary');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const JWT_SECRET = process.env.JWT_SECRET || 'koikoi_blog_super_secret_fallback_key';
+const JWT_SECRET = process.env.JWT_SECRET;
 
-// Create HTTP server first to safely bind both Express and WebSockets
+if (!JWT_SECRET) {
+  console.error("❌ CRITICAL ERROR: JWT_SECRET environment variable is missing.");
+  process.exit(1);
+}
+
+// Create HTTP server to safely bind both Express and WebSockets
 const server = http.createServer(app);
-
-// Fixed: Explicit path added to clear Render handshake reverse-proxy blocks cleanly
 const wss = new WebSocket.Server({ server, path: '/websocket' });
 
 // Middleware Configuration
 app.use(express.json());
-
-// Configured CORS to dynamically mirror origins and authorize credentials securely
 app.use(cors({
   origin: true,
   credentials: true
 }));
-
 app.use(cookieParser());
-
-// Serve local uploaded files statically (Maintains legacy local image links)
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // ==========================================
@@ -57,12 +55,9 @@ const storage = new CloudinaryStorage({
     allowed_formats: ['jpg', 'png', 'jpeg', 'webp', 'gif']
   },
 });
-
 const upload = multer({ storage: storage });
 
-// ==========================================
-// IMAGE UPLOAD ENDPOINT (Optimized for Quill)
-// ==========================================
+// Image Upload Endpoint (Optimized for Quill)
 app.post('/upload-image', upload.single('media'), (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No image file uploaded.' });
@@ -71,31 +66,43 @@ app.post('/upload-image', upload.single('media'), (req, res) => {
 });
 
 // ==========================================
-// POSTGRESQL INITIALIZATION (Fixed for Supabase SSL)
+// POSTGRESQL INITIALIZATION
 // ==========================================
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: {
-    rejectUnauthorized: false
-  }
+  ssl: { rejectUnauthorized: false }
 });
 
 pool.connect()
   .then(async () => {
-    console.log('✅ Connected to PostgreSQL via Pool');
+    console.log('✅ Connected to PostgreSQL database');
     try {
       await pool.query('CREATE INDEX IF NOT EXISTS idx_posts_user_id ON posts(user_id);');
       await pool.query('CREATE INDEX IF NOT EXISTS idx_posts_created_at ON posts(created_at DESC);');
       await pool.query('CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);');
-      console.log('⚡ High-efficiency database optimization indexes verified.');
     } catch (indexErr) {
-      console.error('⚠️ Index creation warning:', indexErr.message);
+      console.error('⚠️ Index verification warning:', indexErr.message);
     }
   })
   .catch(err => console.error('❌ DB connection error:', err));
 
 // ==========================================
-// WEBSOCKET BROADCAST & PING-PONG HEARTBEAT
+// AUTHENTICATION MIDDLEWARE
+// ==========================================
+const authenticateToken = (req, res, next) => {
+  const token = req.cookies.token;
+  if (!token) {
+    return res.status(401).json({ error: "Authentication required." });
+  }
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) return res.status(403).json({ error: "Session expired or invalid." });
+    req.user = user;
+    next();
+  });
+};
+
+// ==========================================
+// WEBSOCKET BROADCAST ENGINE
 // ==========================================
 const broadcast = (data) => {
   wss.clients.forEach(client => {
@@ -105,25 +112,13 @@ const broadcast = (data) => {
   });
 };
 
-function heartbeat() {
-  this.isAlive = true;
-}
+function heartbeat() { this.isAlive = true; }
 
 wss.on('connection', (ws) => {
-  console.log('🔌 WebSocket client connected via /websocket');
   ws.isAlive = true;
   ws.on('pong', heartbeat);
-
-  ws.send(JSON.stringify({ type: 'WELCOME', message: 'Welcome to Koikoi Blog WebSocket!' }));
-
-  ws.on('message', (message) => {
-    console.log('📩 Received custom message:', message.toString());
-  });
-
-  ws.on('close', () => console.log('❌ WebSocket client disconnected'));
 });
 
-// Periodic actively driven sweep tracking broken client pipes
 const interval = setInterval(() => {
   wss.clients.forEach((ws) => {
     if (ws.isAlive === false) return ws.terminate();
@@ -135,41 +130,10 @@ const interval = setInterval(() => {
 wss.on('close', () => clearInterval(interval));
 
 // ==========================================
-// LOCATION TRACKING MIDDLEWARE
-// ==========================================
-app.use(async (req, res, next) => {
-  try {
-    const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
-    const fetch = (...args) => import('node-fetch').then(({default: f}) => f(...args));
-    const response = await fetch(`https://ipapi.co/${ip}/json/`).catch(() => null);
-
-    if (response && response.ok) {
-      const data = await response.json();
-      req.userLocation = {
-        ip,
-        city: data.city,
-        region: data.region,
-        country: data.country_name
-      };
-
-      if (!req.cookies.consent) {
-        res.cookie('consent', 'true', { httpOnly: true, maxAge: 365*24*60*60*1000 });
-      }
-    } else {
-      req.userLocation = null;
-    }
-  } catch (err) {
-    console.error('Optional location tracking skipped:', err.message);
-    req.userLocation = null;
-  }
-  next();
-});
-
-// ==========================================
-// APP CORE ROUTING INFRASTRUCTURE
+// CORE APPLICATION ROUTING
 // ==========================================
 
-// Server-rendered Full Client Frontend Dashboard
+// Main Application View Delivery
 app.get('/', (req, res) => {
   res.send(`
 <!DOCTYPE html>
@@ -221,30 +185,16 @@ app.get('/', (req, res) => {
       margin-top: 5px;
     }
     .action-btn {
-      flex: 1;
-      background: none;
-      border: none;
-      cursor: pointer;
-      font-weight: 500;
-      font-size: 0.9rem;
-      color: var(--gray);
-      padding: 8px 0;
-      text-align: center;
-      transition: background 0.15s;
+      flex: 1; background: none; border: none; cursor: pointer;
+      font-weight: 500; font-size: 0.9rem; color: var(--gray);
+      padding: 8px 0; text-align: center; transition: background 0.15s;
     }
-    .action-btn:hover {
-      background: #f5f5f5;
-    }
+    .action-btn:hover { background: #f5f5f5; }
     .action-btn.edit-btn { color: #2e7d32; }
     .action-btn.delete-btn { color: #c62828; }
-
     #editor-section {
-      background: white;
-      border: 1px solid var(--border-color);
-      border-radius: 8px;
-      padding: 20px;
-      margin-bottom: 20px;
-      display: none;
+      background: white; border: 1px solid var(--border-color);
+      border-radius: 8px; padding: 20px; margin-bottom: 20px; display: none;
     }
     .form-group { margin-bottom: 15px; }
     .form-group input {
@@ -255,7 +205,6 @@ app.get('/', (req, res) => {
       background: var(--primary); color: white; border: none;
       padding: 10px 20px; border-radius: 4px; cursor: pointer; font-size: 1rem;
     }
-
     .nav-tabs {
       position: fixed; bottom: 0; left: 0; right: 0; height: 60px;
       background: white; border-top: 1px solid var(--border-color);
@@ -275,13 +224,12 @@ app.get('/', (req, res) => {
 
   <div id="feed-view">
     <h1>🚀 Koikoi Blog Feed</h1>
-    <div id="posts-container">Loading posts...</div>
+    <div id="posts-container">Loading feed...</div>
   </div>
 
   <div id="editor-section">
     <h2 id="editor-title-heading">Create New Post</h2>
     <input type="hidden" id="editing-post-id" value="">
-    
     <div class="form-group">
       <input type="text" id="post-title-input" placeholder="Post Title">
     </div>
@@ -305,16 +253,30 @@ app.get('/', (req, res) => {
     const WS_PROTOCOL = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
     const WS_URL = \`\${WS_PROTOCOL}\${window.location.host}/websocket\`;
 
-    // 💡 FIXED: Dynamically load user state from storage, fallback to new account variables safely
-    let currentUser = JSON.parse(localStorage.getItem('currentUser')) || { id: 2, username: "Koikoi" };
+    let currentUser = null;
     let quill;
+
+    // Fetch account session data securely from server identity endpoint
+    async function verifyUserSession() {
+      try {
+        const res = await fetch(\`\${API_BASE}/me\`);
+        if (res.ok) {
+          currentUser = await res.json();
+        }
+      } catch (err) {
+        console.error("Session verification failed:", err);
+      }
+      // Load feed once auth parameters are verified
+      fetchAndRenderPosts();
+    }
 
     document.addEventListener("DOMContentLoaded", () => {
       quill = new Quill('#quill-editor-box', {
         theme: 'snow',
-        placeholder: 'Compose your masterpiece content here...',
-        modules: { toolbar: [['bold', 'italic', 'underline'], ['image', 'link', 'blockquote']] }
+        placeholder: 'Compose your content...',
+        modules: { toolbar: [['bold', 'italic', 'underline'], ['image', 'link']] }
       });
+      verifyUserSession();
     });
 
     function switchView(view) {
@@ -327,6 +289,7 @@ app.get('/', (req, res) => {
         document.getElementById('tab-home').classList.add('active');
         clearEditorFields();
       } else if (view === 'post') {
+        if (!currentUser) return alert("Please log in to make a post.");
         document.getElementById('feed-view').style.display = 'none';
         document.getElementById('editor-section').style.display = 'block';
         document.getElementById('tab-post').classList.add('active');
@@ -356,14 +319,13 @@ app.get('/', (req, res) => {
     }
 
     function renderPostCardHTML(post) {
-      // 💡 FIXED: String comparison to ensure different ID object primitives match up smoothly
-      const isAuthor = String(post.user_id) === String(currentUser.id);
+      const isAuthor = currentUser && String(post.user_id) === String(currentUser.id);
       const commentsCount = Array.isArray(post.comments) ? post.comments.length : 0;
 
       return \`
         <div class="post-card" id="post-\${post.id}">
           <div class="post-content">\${post.content}</div>
-          <div style="font-size:0.9rem; color:var(--gray); margin-bottom:10px;"><strong>By:</strong> \${post.username || 'Koikoi'}</div>
+          <div style="font-size:0.9rem; color:var(--gray); margin-bottom:10px;"><strong>By:</strong> \${post.username || 'Anonymous'}</div>
           
           <div class="post-meta-counters">
             <span>👍 <span id="likes-count-\${post.id}">\${post.likes || 0}</span></span> | 
@@ -412,7 +374,7 @@ app.get('/', (req, res) => {
       const content = quill.root.innerHTML;
 
       if (!title || content === '<p><br></p>') {
-        return alert("Please provide valid inputs for title and content layers.");
+        return alert("Please enter a title and content.");
       }
 
       const url = postId ? \`\${API_BASE}/posts/\${postId}\` : \`\${API_BASE}/posts\`;
@@ -422,13 +384,13 @@ app.get('/', (req, res) => {
         const res = await fetch(url, {
           method: method,
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ user_id: currentUser.id, title, content })
+          body: JSON.stringify({ title, content })
         });
 
         if (res.ok) {
           switchView('home');
         } else {
-          alert("Error processing transaction request payload");
+          alert("Failed to submit post.");
         }
       } catch(err) {
         console.error(err);
@@ -456,7 +418,6 @@ app.get('/', (req, res) => {
       socket.onclose = () => setTimeout(initializeWebSocket, 5000);
     }
 
-    fetchAndRenderPosts();
     initializeWebSocket();
   </script>
 </body>
@@ -464,7 +425,12 @@ app.get('/', (req, res) => {
   `);
 });
 
-// Fetch all posts with usernames
+// Identity verification route
+app.get('/me', authenticateToken, (req, res) => {
+  res.json(req.user);
+});
+
+// Fetch all posts with accurate author usernames
 app.get('/posts', async (req, res) => {
   try {
     const result = await pool.query(`
@@ -475,12 +441,11 @@ app.get('/posts', async (req, res) => {
     `);
     res.json(result.rows);
   } catch (err) {
-    console.error('Fetch posts error:', err.message);
     res.status(500).json({ error: 'Failed to fetch posts.' });
   }
 });
 
-// Fetch a single post by ID
+// Fetch single post
 app.get('/posts/:id', async (req, res) => {
   const { id } = req.params;
   try {
@@ -490,271 +455,144 @@ app.get('/posts/:id', async (req, res) => {
       LEFT JOIN users ON posts.user_id = users.id
       WHERE posts.id = $1
     `, [id]);
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Post not found' });
-    }
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Not found' });
     res.json(result.rows[0]);
   } catch (err) {
-    console.error('Fetch single post error:', err.message);
     res.status(500).json({ error: 'Failed to fetch post.' });
   }
 });
 
-// Create a new post
-app.post('/posts', upload.single('media'), async (req, res) => {
-  const { user_id, title, content, editor_type, live_link } = req.body;
-  if (!user_id || !title || !content) {
-    return res.status(400).json({ error: 'User ID, title, and content are required.' });
-  }
+// Create post
+app.post('/posts', authenticateToken, async (req, res) => {
+  const { title, content } = req.body;
   try {
     const result = await pool.query(
-      'INSERT INTO posts (user_id, title, content, editor_type, live_link) VALUES ($1, $2, $3, $4, $5) RETURNING *',
-      [user_id, title, content, editor_type || 'quill', live_link]
+      'INSERT INTO posts (user_id, title, content) VALUES ($1, $2, $3) RETURNING *',
+      [req.user.id, title, content]
     );
-
     const newPost = result.rows[0];
+    newPost.username = req.user.username;
     
-    // 💡 FIXED: Fetch full author username row back right away on creation event broadcast
-    const userLookup = await pool.query('SELECT username FROM users WHERE id = $1', [newPost.user_id]);
-    newPost.username = userLookup.rows[0]?.username || 'Koikoi';
-
     broadcast({ action: 'CREATE', post: newPost });
     res.status(201).json(newPost);
   } catch (err) {
-    console.error('Create post error:', err.message);
     res.status(500).json({ error: 'Failed to create post.' });
   }
 });
 
-// ✏️ UPDATE A POST
-app.put('/posts/:id', upload.single('media'), async (req, res) => {
+// Edit post
+app.put('/posts/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
-  const { title, content, editor_type, live_link } = req.body;
+  const { title, content } = req.body;
   try {
-    const result = await pool.query(
-      'UPDATE posts SET title=$1, content=$2, editor_type=$3, live_link=$4 WHERE id=$5 RETURNING *',
-      [title, content, editor_type || 'quill', live_link, id]
-    );
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Post not found' });
+    const postCheck = await pool.query('SELECT user_id FROM posts WHERE id = $1', [id]);
+    if (postCheck.rows.length === 0) return res.status(404).json({ error: 'Post not found' });
+    if (String(postCheck.rows[0].user_id) !== String(req.user.id)) {
+      return res.status(403).json({ error: 'Unauthorized modification attempt.' });
     }
 
+    const result = await pool.query(
+      'UPDATE posts SET title=$1, content=$2 WHERE id=$3 RETURNING *',
+      [title, content, id]
+    );
     const updatedPost = result.rows[0];
-    
-    const userLookup = await pool.query('SELECT username FROM users WHERE id = $1', [updatedPost.user_id]);
-    updatedPost.username = userLookup.rows[0]?.username || 'Koikoi';
+    updatedPost.username = req.user.username;
 
     broadcast({ action: 'UPDATE', post: updatedPost });
     res.json(updatedPost);
   } catch (err) {
-    console.error('Update post error:', err.message);
     res.status(500).json({ error: 'Failed to update post.' });
   }
 });
 
-// 👍 ATOMIC LIKE INCREMENT ROUTE
+// Atomic Like Increment
 app.post('/posts/:id/like', async (req, res) => {
   const { id } = req.params;
   try {
-    const result = await pool.query(
-      'UPDATE posts SET likes = COALESCE(likes, 0) + 1 WHERE id = $1 RETURNING *',
-      [id]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Post not found' });
-    }
-
-    const updatedPost = result.rows[0];
-    const userLookup = await pool.query('SELECT username FROM users WHERE id = $1', [updatedPost.user_id]);
-    updatedPost.username = userLookup.rows[0]?.username || 'Koikoi';
-
-    broadcast({ action: 'UPDATE', post: updatedPost });
-    res.json(updatedPost);
+    const result = await pool.query('UPDATE posts SET likes = COALESCE(likes, 0) + 1 WHERE id = $1 RETURNING *', [id]);
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Post not found' });
+    const post = result.rows[0];
+    
+    const userLookup = await pool.query('SELECT username FROM users WHERE id = $1', [post.user_id]);
+    post.username = userLookup.rows[0]?.username || 'Anonymous';
+    
+    broadcast({ action: 'UPDATE', post });
+    res.json(post);
   } catch (err) {
-    console.error('Like tracking exception:', err.message);
-    res.status(500).json({ error: 'Failed to process like event.' });
+    res.status(500).json({ error: 'Like error.' });
   }
 });
 
-// 💬 PERSISTENT COMMENTS ROUTE (JSONB Engine)
-app.post('/posts/:id/comment', async (req, res) => {
-  const { id } = req.params;
-  const { text, username } = req.body;
-
-  if (!text) {
-    return res.status(400).json({ error: 'Comment content cannot be blank.' });
-  }
-
-  try {
-    const result = await pool.query(
-      `UPDATE posts 
-       SET comments = COALESCE(comments, '[]'::jsonb) || jsonb_build_array(
-         jsonb_build_object('id', extract(epoch from now()), 'username', $1::text, 'text', $2::text)
-       )
-       WHERE id = $3 RETURNING *`,
-      [username || 'Anonymous', text, id]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Post not found' });
-    }
-
-    const updatedPost = result.rows[0];
-    const userLookup = await pool.query('SELECT username FROM users WHERE id = $1', [updatedPost.user_id]);
-    updatedPost.username = userLookup.rows[0]?.username || 'Koikoi';
-
-    broadcast({ action: 'UPDATE', post: updatedPost });
-    res.json(updatedPost);
-  } catch (err) {
-    console.error('Comment process tracking exception:', err.message);
-    res.status(500).json({ error: 'Failed to save comment entry.' });
-  }
-});
-
-// 🗑️ CASCADE DELETE ROUTE
-app.delete('/posts/:id', async (req, res) => {
+// Delete Post
+app.delete('/posts/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
   try {
-    const result = await pool.query('DELETE FROM posts WHERE id=$1 RETURNING *', [id]);
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Post not found' });
+    const postCheck = await pool.query('SELECT user_id FROM posts WHERE id = $1', [id]);
+    if (postCheck.rows.length === 0) return res.status(404).json({ error: 'Post not found' });
+    if (String(postCheck.rows[0].user_id) !== String(req.user.id)) {
+      return res.status(403).json({ error: 'Unauthorized deletion attempt.' });
     }
 
+    await pool.query('DELETE FROM posts WHERE id=$1', [id]);
     broadcast({ action: 'DELETE', id });
-    res.json({ success: true, message: 'Post and inline comments removed completely.', deleted: result.rows[0] });
+    res.json({ success: true });
   } catch (err) {
-    console.error('Delete post error:', err.message);
     res.status(500).json({ error: 'Failed to delete post.' });
   }
 });
 
 // ==========================================
-// SECURE AUTHENTICATION ENDPOINTS
+// AUTHENTICATION SYSTEM INTERFACES
 // ==========================================
-
 const issueSessionCookie = (res, user) => {
   const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: '7d' });
   res.cookie('token', token, {
     httpOnly: true,
-    secure: true, 
+    secure: true,
     sameSite: 'none',
-    maxAge: 7 * 24 * 60 * 60 * 1000 
+    maxAge: 7 * 24 * 60 * 60 * 1000
   });
 };
 
-// Secure Signup
 app.post('/signup', async (req, res) => {
   const { username, password } = req.body;
-  if (!username || !password) {
-    return res.status(400).json({ error: 'Username and password are required.' });
-  }
+  if (!username || !password) return res.status(400).json({ error: 'Fields required.' });
   try {
     const hashedPassword = await bcrypt.hash(password, 10);
     const result = await pool.query(
       'INSERT INTO users (username, password) VALUES ($1, $2) RETURNING id, username',
       [username, hashedPassword]
     );
+    issueSessionCookie(res, result.rows[0]);
+    res.json({ success: true, user: result.rows[0] });
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ error: 'Username taken.' });
+    res.status(500).json({ error: 'Signup error.' });
+  }
+});
+
+app.post('/signin', async (req, res) => {
+  const { username, password } = req.body;
+  try {
+    const result = await pool.query('SELECT * FROM users WHERE username=$1', [username]);
+    if (result.rows.length === 0) return res.status(401).json({ error: 'Invalid credentials.' });
     
-    const user = result.rows[0];
+    const isMatch = await bcrypt.compare(password, result.rows[0].password);
+    if (!isMatch) return res.status(401).json({ error: 'Invalid credentials.' });
+
+    const user = { id: result.rows[0].id, username: result.rows[0].username };
     issueSessionCookie(res, user);
     res.json({ success: true, user });
   } catch (err) {
-    console.error('Signup error:', err.message);
-    if (err.code === '23505') {
-      return res.status(409).json({ error: 'Username already exists.' });
-    }
-    res.status(500).json({ error: 'Internal server error.' });
+    res.status(500).json({ error: 'Signin error.' });
   }
 });
 
-// Secure Signin
-app.post('/signin', async (req, res) => {
-  const { username, password } = req.body;
-  if (!username || !password) {
-    return res.status(400).json({ error: 'Username and password are required.' });
-  }
-  try {
-    const result = await pool.query('SELECT * FROM users WHERE username=$1', [username]);
-    if (result.rows.length === 0) {
-      return res.status(401).json({ success: false, error: 'Invalid username or password.' });
-    }
-
-    const user = result.rows[0];
-    const isMatch = await bcrypt.compare(password, user.password);
-
-    if (!isMatch) {
-      return res.status(401).json({ success: false, error: 'Invalid username or password.' });
-    }
-
-    const sanitizedUser = { id: user.id, username: user.username };
-    issueSessionCookie(res, sanitizedUser);
-    res.json({ success: true, user: sanitizedUser });
-  } catch (err) {
-    console.error('Signin error:', err.message);
-    res.status(500).json({ error: 'Internal server error.' });
-  }
-});
-
-// Secure Signup-or-Signin
-app.post('/signup-or-signin', async (req, res) => {
-  const { username, password } = req.body;
-  if (!username || !password) {
-    return res.status(400).json({ error: 'Username and password are required.' });
-  }
-  try {
-    const existing = await pool.query('SELECT * FROM users WHERE username=$1', [username]);
-    
-    if (existing.rows.length > 0) {
-      const user = existing.rows[0];
-      const isMatch = await bcrypt.compare(password, user.password);
-      if (isMatch) {
-        const sanitizedUser = { id: user.id, username: user.username };
-        issueSessionCookie(res, sanitizedUser);
-        return res.json({ success: true, user: sanitizedUser });
-      } else {
-        return res.status(401).json({ error: 'Password mismatch.' });
-      }
-    }
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const result = await pool.query(
-      'INSERT INTO users (username, password) VALUES ($1, $2) RETURNING id, username',
-      [username, hashedPassword]
-    );
-    
-    const newUser = result.rows[0];
-    issueSessionCookie(res, newUser);
-    res.json({ success: true, user: newUser });
-  } catch (err) {
-    console.error('Signup-or-signin error:', err.message);
-    res.status(500).json({ error: 'Internal server error.' });
-  }
-});
-
-// Clean Logout Endpoint
 app.post('/logout', (req, res) => {
   res.clearCookie('token', { httpOnly: true, secure: true, sameSite: 'none' });
-  res.json({ success: true, message: 'Logged out cleanly.' });
+  res.json({ success: true });
 });
 
-// Fetch current user details by ID
-app.get('/me/:id', async (req, res) => {
-  const { id } = req.params;
-  try {
-    const result = await pool.query('SELECT id, username FROM users WHERE id=$1', [id]);
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-    res.json(result.rows[0]);
-  } catch (err) {
-    console.error('Fetch user error:', err.message);
-    res.status(500).json({ error: 'Failed to fetch user.' });
-  }
-});
-
-// Start Server cleanly bound to the HTTP + WS setup
 server.listen(PORT, () => {
-  console.log(`🚀 Server running smoothly on port ${PORT}`);
+  console.log(`🚀 Production server operational on port ${PORT}`);
 });
