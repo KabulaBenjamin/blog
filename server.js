@@ -169,8 +169,310 @@ app.use(async (req, res, next) => {
 // ==========================================
 // APP CORE ROUTING INFRASTRUCTURE
 // ==========================================
+
+// Server-rendered Full Client Frontend Dashboard
 app.get('/', (req, res) => {
-  res.send('Welcome to Koikoi Blog API! Try /posts to see posts.');
+  res.send(`
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Koikoi Blog</title>
+  <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
+  <script src="https://cdn.quilljs.com/1.3.6/quill.js"></script>
+  <style>
+    :root {
+      --primary: #0070f3;
+      --danger: #ff0000;
+      --text: #333;
+      --gray: #666;
+      --bg: #fafafa;
+      --card-bg: #ffffff;
+      --border-color: #eaeaea;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px 20px 80px 20px; /* space for nav bar */
+    }
+    .post-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.01);
+    }
+    .post-meta-counters {
+      font-size: 0.9rem;
+      color: var(--gray);
+      margin: 15px 0 5px 0;
+      display: flex;
+      gap: 10px;
+    }
+    /* Action Buttons row matches user design specs */
+    .post-actions-row {
+      display: flex;
+      border-top: 1px solid #f0f0f0;
+      border-bottom: 1px solid #f0f0f0;
+      padding: 5px 0;
+      margin-top: 5px;
+    }
+    .action-btn {
+      flex: 1;
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-weight: 500;
+      font-size: 0.9rem;
+      color: var(--gray);
+      padding: 8px 0;
+      text-align: center;
+      transition: background 0.15s;
+    }
+    .action-btn:hover {
+      background: #f5f5f5;
+    }
+    .action-btn.edit-btn { color: #2e7d32; }
+    .action-btn.delete-btn { color: #c62828; }
+
+    /* Creator Editor Section Form CSS */
+    #editor-section {
+      background: white;
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+      display: none;
+    }
+    .form-group { margin-bottom: 15px; }
+    .form-group input {
+      width: 100%; padding: 10px; box-sizing: border-box;
+      border: 1px solid #ddd; border-radius: 4px; font-size: 1rem;
+    }
+    .btn-submit {
+      background: var(--primary); color: white; border: none;
+      padding: 10px 20px; border-radius: 4px; cursor: pointer; font-size: 1rem;
+    }
+
+    /* Fixed Bottom Mobile-Friendly Tab Bar Navigation */
+    .nav-tabs {
+      position: fixed; bottom: 0; left: 0; right: 0; height: 60px;
+      background: white; border-top: 1px solid var(--border-color);
+      display: flex; justify-content: space-around; align-items: center;
+      box-shadow: 0 -2px 10px rgba(0,0,0,0.05); z-index: 1000;
+    }
+    .nav-tab-item {
+      background: none; border: none; cursor: pointer;
+      display: flex; flex-direction: column; align-items: center;
+      font-size: 0.75rem; color: var(--gray);
+    }
+    .nav-tab-item.active { color: var(--primary); }
+    .nav-tab-item span { font-size: 1.4rem; margin-bottom: 2px; }
+  </style>
+</head>
+<body>
+
+  <div id="feed-view">
+    <h1>🚀 Koikoi Blog Feed</h1>
+    <div id="posts-container">Loading posts...</div>
+  </div>
+
+  <div id="editor-section">
+    <h2 id="editor-title-heading">Create New Post</h2>
+    <input type="hidden" id="editing-post-id" value="">
+    
+    <div class="form-group">
+      <input type="text" id="post-title-input" placeholder="Post Title">
+    </div>
+    <div class="form-group">
+      <div id="quill-editor-box" style="height: 250px;"></div>
+    </div>
+    <button class="btn-submit" onclick="submitPostForm()">Publish Post</button>
+    <button class="btn-submit" style="background:#aaa; margin-left:10px;" onclick="switchView('home')">Cancel</button>
+  </div>
+
+  <div class="nav-tabs">
+    <button class="nav-tab-item active" id="tab-home" onclick="switchView('home')"><span>🏠</span>Home</button>
+    <button class="nav-tab-item" id="tab-post" onclick="switchView('post')"><span>➕</span>Post</button>
+    <button class="nav-tab-item"><span>👤</span>Profile</button>
+    <button class="nav-tab-item"><span>🔔</span>Notifications</button>
+    <button class="nav-tab-item"><span>⚙️</span>Settings</button>
+  </div>
+
+  <script>
+    const API_BASE = window.location.origin;
+    const WS_PROTOCOL = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+    const WS_URL = \`\${WS_PROTOCOL}\${window.location.host}/websocket\`;
+
+    // Global session configuration
+    let currentUser = { id: 1, username: "Benjamin" };
+    let quill;
+
+    // Initialize Rich Text Quill Instance
+    document.addEventListener("DOMContentLoaded", () => {
+      quill = new Quill('#quill-editor-box', {
+        theme: 'snow',
+        placeholder: 'Compose your masterpiece content here...',
+        modules: { toolbar: [['bold', 'italic', 'underline'], ['image', 'link', 'blockquote']] }
+      });
+    });
+
+    // Toggle between feed display and the write/edit scene
+    function switchView(view) {
+      document.getElementById('tab-home').classList.remove('active');
+      document.getElementById('tab-post').classList.remove('active');
+
+      if (view === 'home') {
+        document.getElementById('feed-view').style.display = 'block';
+        document.getElementById('editor-section').style.display = 'none';
+        document.getElementById('tab-home').classList.add('active');
+        clearEditorFields();
+      } else if (view === 'post') {
+        document.getElementById('feed-view').style.display = 'none';
+        document.getElementById('editor-section').style.display = 'block';
+        document.getElementById('tab-post').classList.add('active');
+        document.getElementById('editor-title-heading').innerText = "Create New Post";
+      }
+    }
+
+    function clearEditorFields() {
+      document.getElementById('editing-post-id').value = "";
+      document.getElementById('post-title-input').value = "";
+      quill.setContents([]);
+    }
+
+    async function fetchAndRenderPosts() {
+      try {
+        const res = await fetch(\`\${API_BASE}/posts\`);
+        const posts = await res.json();
+        const container = document.getElementById('posts-container');
+        if(posts.length === 0) {
+          container.innerHTML = "<p>No posts available yet.</p>";
+          return;
+        }
+        container.innerHTML = posts.map(post => renderPostCardHTML(post)).join('');
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    function renderPostCardHTML(post) {
+      const isAuthor = Number(post.user_id) === Number(currentUser.id);
+      const commentsCount = Array.isArray(post.comments) ? post.comments.length : 0;
+
+      return \`
+        <div class="post-card" id="post-\${post.id}">
+          <div class="post-content">\${post.content}</div>
+          <div style="font-size:0.9rem; color:var(--gray); margin-bottom:10px;">By: \${post.username || 'Anonymous'}</div>
+          
+          <div class="post-meta-counters">
+            <span>👍 \span id="likes-count-\${post.id}">\${post.likes || 0}</span></span> | 
+            <span>💬 \${commentsCount}</span>
+          </div>
+
+          <div class="post-actions-row">
+            <button class="action-btn" onclick="likePost(\${post.id})">Like</button>
+            <button class="action-btn">Comment</button>
+            <button class="action-btn">Share</button>
+            \${isAuthor ? \`
+              <button class="action-btn edit-btn" onclick="openPostInQuillEditor(\${post.id})">Edit</button>
+              <button class="action-btn delete-btn" onclick="triggerDeletePost(\${post.id})">Delete</button>
+            \` : ''}
+          </div>
+        </div>
+      \`;
+    }
+
+    async function likePost(id) {
+      try { await fetch(\`\${API_BASE}/posts/\${id}/like\`, { method: 'POST' }); } catch(e){}
+    }
+
+    // ✏️ FETCH CURRENT DATA ROW AND POPULATE INTO QUILL
+    async function openPostInQuillEditor(id) {
+      try {
+        const res = await fetch(\`\${API_BASE}/posts/\${id}\`);
+        if (!res.ok) throw new Error("Could not load post content details");
+        const post = await res.json();
+
+        // Populate hidden fields and input targets
+        document.getElementById('editing-post-id').value = post.id;
+        document.getElementById('post-title-input').value = post.title || "";
+        
+        // Inject structural text html inside quill instance layer cleanly
+        quill.clipboard.dangerouslyPasteHTML(post.content);
+
+        // Transition layout view panel focus state
+        document.getElementById('feed-view').style.display = 'none';
+        document.getElementById('editor-section').style.display = 'block';
+        document.getElementById('editor-title-heading').innerText = "Edit Your Post";
+        window.scrollTo(0,0);
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+
+    // Process dispatch updates or raw creation saves
+    async function submitPostForm() {
+      const postId = document.getElementById('editing-post-id').value;
+      const title = document.getElementById('post-title-input').value.trim();
+      const content = quill.root.innerHTML; // Extract rich HTML text output string
+
+      if (!title || content === '<p><br></p>') {
+        return alert("Please provide valid inputs for title and content layers.");
+      }
+
+      const url = postId ? \`\${API_BASE}/posts/\${postId}\` : \`\${API_BASE}/posts\`;
+      const method = postId ? 'PUT' : 'POST';
+
+      try {
+        const res = await fetch(url, {
+          method: method,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: currentUser.id, title, content })
+        });
+
+        if (res.ok) {
+          switchView('home');
+        } else {
+          alert("Error processing transaction request payload");
+        }
+      } catch(err) {
+        console.error(err);
+      }
+    }
+
+    async function triggerDeletePost(id) {
+      if (!confirm("Are you sure you want to permanently remove this post?")) return;
+      try {
+        await fetch(\`\${API_BASE}/posts/\${id}\`, { method: 'DELETE' });
+      } catch (err) { console.error(err); }
+    }
+
+    function initializeWebSocket() {
+      const socket = new WebSocket(WS_URL);
+      socket.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        if (data.action === 'CREATE' || data.action === 'UPDATE') {
+          fetchAndRenderPosts();
+        } else if (data.action === 'DELETE') {
+          const element = document.getElementById(\`post-\${data.id}\`);
+          if (element) element.remove();
+        }
+      };
+      socket.onclose = () => setTimeout(initializeWebSocket, 5000);
+    }
+
+    fetchAndRenderPosts();
+    initializeWebSocket();
+  </script>
+</body>
+</html>
+  `);
 });
 
 // Fetch all posts with usernames
@@ -231,7 +533,7 @@ app.post('/posts', upload.single('media'), async (req, res) => {
   }
 });
 
-// ✏️ UPDATE A POST (Fixed & Optimized)
+// ✏️ UPDATE A POST
 app.put('/posts/:id', upload.single('media'), async (req, res) => {
   const { id } = req.params;
   const { title, content, editor_type, live_link } = req.body;
@@ -318,11 +620,10 @@ app.post('/posts/:id/comment', async (req, res) => {
   }
 });
 
-// 🗑️ CASCADE DELETE ROUTE (Fixed for internal JSONB comments architecture)
+// 🗑️ CASCADE DELETE ROUTE
 app.delete('/posts/:id', async (req, res) => {
   const { id } = req.params;
   try {
-    // Corrected: Comments are embedded inside the post rows, so we only need to remove the post row itself!
     const result = await pool.query('DELETE FROM posts WHERE id=$1 RETURNING *', [id]);
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Post not found' });
