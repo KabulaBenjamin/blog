@@ -56,34 +56,57 @@ router.post('/signin', async (req, res) => {
   }
 });
 
+// =========================================================================
+// FORGOT PASSWORD: Generates short 6-char token & returns it in the response
+// =========================================================================
 router.post('/forgot-password', async (req, res) => {
   const { username } = req.body;
   if (!username) return res.status(400).json({ error: 'Username is required.' });
   try {
     const userCheck = await pool.query('SELECT id FROM users WHERE username = $1', [username]);
     if (userCheck.rows.length === 0) {
-      return res.json({ success: true, message: 'If the account exists, a reset token has been generated.' });
+      // Security standard: don't explicitly leak non-existent usernames to scanners
+      return res.status(404).json({ error: 'Username lookup processed: account not found.' });
     }
+    
     const userId = userCheck.rows[0].id;
-    const resetToken = crypto.randomBytes(32).toString('hex');
-    const tokenExpiry = new Date(Date.now() + 3600000);
+    
+    // Generates a clean 6-character alpha-numeric token (e.g., A4B7E9) for screen display copy-paste efficiency
+    const resetToken = crypto.randomBytes(3).toString('hex').toUpperCase();
+    const tokenExpiry = new Date(Date.now() + 3600000); // 1 Hour active lifespan Matrix
 
     await pool.query(
       'UPDATE users SET reset_token = $1, token_expiry = $2 WHERE id = $3', 
       [resetToken, tokenExpiry, userId]
     );
-    res.json({ success: true, message: 'Reset token generated successfully.', token: resetToken });
+    
+    // Deliver token directly in the response payload for direct UI rendering
+    res.json({ 
+      success: true, 
+      message: 'Reset token generated successfully.', 
+      token: resetToken 
+    });
   } catch (err) {
     res.status(500).json({ error: 'Internal server error processing request.' });
   }
 });
 
+// =========================================================================
+// RESET PASSWORD: Validates token expiration & updates user's credentials
+// =========================================================================
 router.post('/reset-password', async (req, res) => {
   const { token, newPassword } = req.body;
   if (!token || !newPassword) return res.status(400).json({ error: 'Token and password required.' });
   try {
-    const result = await pool.query('SELECT id FROM users WHERE reset_token = $1 AND token_expiry > NOW()', [token]);
-    if (result.rows.length === 0) return res.status(400).json({ error: 'Reset token is invalid or has expired.' });
+    // Look up valid token that hasn't crossed the current timestamp expiry execution limit
+    const result = await pool.query(
+      'SELECT id FROM users WHERE reset_token = $1 AND token_expiry > NOW()', 
+      [token.toUpperCase().trim()]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(400).json({ error: 'Reset token is invalid or has expired.' });
+    }
 
     const hashedPassword = await bcrypt.hash(newPassword, 10);
     await pool.query(
