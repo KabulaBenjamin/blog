@@ -7,6 +7,7 @@ const multer = require('multer');
 const path = require('path');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 
 // Configure pg engine defaults before initialization
 const pg = require('pg');
@@ -218,6 +219,23 @@ app.get('/', (req, res) => {
     }
     .nav-tab-item.active { color: var(--primary); }
     .nav-tab-item span { font-size: 1.4rem; margin-bottom: 2px; }
+
+    /* Quill Font Formatting Overrides */
+    .ql-snow .ql-picker.ql-font .ql-picker-label[data-value="times-new-roman"]::before,
+    .ql-snow .ql-picker.ql-font .ql-picker-item[data-value="times-new-roman"]::before {
+      content: 'Times New Roman'; font-family: 'Times New Roman', Times, serif;
+    }
+    .ql-snow .ql-picker.ql-font .ql-picker-label[data-value="arial"]::before,
+    .ql-snow .ql-picker.ql-font .ql-picker-item[data-value="arial"]::before {
+      content: 'Arial'; font-family: Arial, sans-serif;
+    }
+    .ql-snow .ql-picker.ql-font .ql-picker-label[data-value="georgia"]::before,
+    .ql-snow .ql-picker.ql-font .ql-picker-item[data-value="georgia"]::before {
+      content: 'Georgia'; font-family: Georgia, serif;
+    }
+    .ql-font-times-new-roman { font-family: 'Times New Roman', Times, serif; }
+    .ql-font-arial { font-family: Arial, sans-serif; }
+    .ql-font-georgia { font-family: Georgia, serif; }
   </style>
 </head>
 <body>
@@ -256,7 +274,43 @@ app.get('/', (req, res) => {
     let currentUser = null;
     let quill;
 
-    // Fetch account session data securely from server identity endpoint
+    // Register Whitelisted Typography Fonts inside local Quill engine context
+    const Font = Quill.import('formats/font');
+    Font.whitelist = ['serif', 'monospace', 'sans-serif', 'times-new-roman', 'arial', 'georgia'];
+    Quill.register(Font, true);
+
+    // Canvas image compression pipeline helper
+    function compressImageFile(file) {
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = (event) => {
+          const img = new Image();
+          img.src = event.target.result;
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            const MAX_WIDTH = 1200;
+            let width = img.width;
+            let height = img.height;
+
+            if (width > MAX_WIDTH) {
+              height = Math.round((height * MAX_WIDTH) / width);
+              width = MAX_WIDTH;
+            }
+            canvas.width = width;
+            canvas.height = height;
+
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
+            canvas.toBlob((blob) => {
+              const compressedFile = new File([blob], file.name, { type: 'image/jpeg' });
+              resolve(compressedFile);
+            }, 'image/jpeg', 0.75);
+          };
+        };
+      });
+    }
+
     async function verifyUserSession() {
       try {
         const res = await fetch(\`\${API_BASE}/me\`);
@@ -266,7 +320,6 @@ app.get('/', (req, res) => {
       } catch (err) {
         console.error("Session verification failed:", err);
       }
-      // Load feed once auth parameters are verified
       fetchAndRenderPosts();
     }
 
@@ -274,7 +327,53 @@ app.get('/', (req, res) => {
       quill = new Quill('#quill-editor-box', {
         theme: 'snow',
         placeholder: 'Compose your content...',
-        modules: { toolbar: [['bold', 'italic', 'underline'], ['image', 'link']] }
+        modules: { 
+          toolbar: {
+            container: [
+              [{ 'font': ['serif', 'monospace', 'sans-serif', 'times-new-roman', 'arial', 'georgia'] }],
+              [{ 'header': [1, 2, false] }],
+              ['bold', 'italic', 'underline'],
+              ['link', 'image'],
+              [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+              ['clean']
+            ],
+            handlers: {
+              image: function() {
+                const input = document.createElement('input');
+                input.setAttribute('type', 'file');
+                input.setAttribute('accept', 'image/*');
+                input.click();
+
+                input.onchange = async () => {
+                  const file = input.files[0];
+                  if (!file) return;
+
+                  try {
+                    const optimizedFile = await compressImageFile(file);
+                    const formData = new FormData();
+                    formData.append('media', optimizedFile);
+
+                    const res = await fetch(\`\${API_BASE}/upload-image\`, {
+                      method: 'POST',
+                      body: formData
+                    });
+
+                    if (res.ok) {
+                      const data = await res.json();
+                      const range = quill.getSelection(true);
+                      quill.insertEmbed(range.index, 'image', data.url);
+                      quill.setSelection(range.index + 1);
+                    } else {
+                      alert('Image upload failed.');
+                    }
+                  } catch (err) {
+                    console.error('Image upload pipeline error:', err);
+                  }
+                };
+              }
+            }
+          }
+        }
       });
       verifyUserSession();
     });
@@ -588,9 +687,52 @@ app.post('/signin', async (req, res) => {
   }
 });
 
+// ==========================================
+// PASSWORD RECOVERY ENDPOINTS
+// ==========================================
+app.post('/forgot-password', async (req, res) => {
+  const { username } = req.body;
+  if (!username) return res.status(400).json({ error: 'Username is required.' });
+  try {
+    const userCheck = await pool.query('SELECT id FROM users WHERE username = $1', [username]);
+    if (userCheck.rows.length === 0) {
+      return res.json({ success: true, message: 'If the account exists, a reset token has been generated.' });
+    }
+    const userId = userCheck.rows[0].id;
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const tokenExpiry = new Date(Date.now() + 3600000);
+
+    await pool.query(
+      'UPDATE users SET reset_token = $1, token_expiry = $2 WHERE id = $3', 
+      [resetToken, tokenExpiry, userId]
+    );
+    res.json({ success: true, message: 'Reset token generated successfully.', token: resetToken });
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error processing request.' });
+  }
+});
+
+app.post('/reset-password', async (req, res) => {
+  const { token, newPassword } = req.body;
+  if (!token || !newPassword) return res.status(400).json({ error: 'Token and password required.' });
+  try {
+    const result = await pool.query('SELECT id FROM users WHERE reset_token = $1 AND token_expiry > NOW()', [token]);
+    if (result.rows.length === 0) return res.status(400).json({ error: 'Reset token is invalid or has expired.' });
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    await pool.query(
+      'UPDATE users SET password = $1, reset_token = NULL, token_expiry = NULL WHERE id = $2', 
+      [hashedPassword, result.rows[0].id]
+    );
+    res.json({ success: true, message: 'Password updated successfully!' });
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error updating password.' });
+  }
+});
+
 app.post('/logout', (req, res) => {
   res.clearCookie('token', { httpOnly: true, secure: true, sameSite: 'none' });
-  res.json({ success: true });
+  res.json({ success: true, message: 'Logged out cleanly.' });
 });
 
 server.listen(PORT, () => {
