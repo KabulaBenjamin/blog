@@ -84,7 +84,6 @@ pool.connect()
   .then(async () => {
     console.log('✅ Connected to PostgreSQL via Pool');
     try {
-      // Create indexes automatically on startup for instant lookups
       await pool.query('CREATE INDEX IF NOT EXISTS idx_posts_user_id ON posts(user_id);');
       await pool.query('CREATE INDEX IF NOT EXISTS idx_posts_created_at ON posts(created_at DESC);');
       await pool.query('CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);');
@@ -197,7 +196,7 @@ app.get('/', (req, res) => {
       color: var(--text);
       max-width: 800px;
       margin: 0 auto;
-      padding: 20px 20px 80px 20px; /* space for nav bar */
+      padding: 20px 20px 80px 20px;
     }
     .post-card {
       background: var(--card-bg);
@@ -214,7 +213,6 @@ app.get('/', (req, res) => {
       display: flex;
       gap: 10px;
     }
-    /* Action Buttons row matches user design specs */
     .post-actions-row {
       display: flex;
       border-top: 1px solid #f0f0f0;
@@ -240,7 +238,6 @@ app.get('/', (req, res) => {
     .action-btn.edit-btn { color: #2e7d32; }
     .action-btn.delete-btn { color: #c62828; }
 
-    /* Creator Editor Section Form CSS */
     #editor-section {
       background: white;
       border: 1px solid var(--border-color);
@@ -259,7 +256,6 @@ app.get('/', (req, res) => {
       padding: 10px 20px; border-radius: 4px; cursor: pointer; font-size: 1rem;
     }
 
-    /* Fixed Bottom Mobile-Friendly Tab Bar Navigation */
     .nav-tabs {
       position: fixed; bottom: 0; left: 0; right: 0; height: 60px;
       background: white; border-top: 1px solid var(--border-color);
@@ -309,11 +305,10 @@ app.get('/', (req, res) => {
     const WS_PROTOCOL = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
     const WS_URL = \`\${WS_PROTOCOL}\${window.location.host}/websocket\`;
 
-    // Global session configuration
-    let currentUser = { id: 1, username: "Benjamin" };
+    // 💡 FIXED: Dynamically load user state from storage, fallback to new account variables safely
+    let currentUser = JSON.parse(localStorage.getItem('currentUser')) || { id: 2, username: "Koikoi" };
     let quill;
 
-    // Initialize Rich Text Quill Instance
     document.addEventListener("DOMContentLoaded", () => {
       quill = new Quill('#quill-editor-box', {
         theme: 'snow',
@@ -322,7 +317,6 @@ app.get('/', (req, res) => {
       });
     });
 
-    // Toggle between feed display and the write/edit scene
     function switchView(view) {
       document.getElementById('tab-home').classList.remove('active');
       document.getElementById('tab-post').classList.remove('active');
@@ -362,16 +356,17 @@ app.get('/', (req, res) => {
     }
 
     function renderPostCardHTML(post) {
-      const isAuthor = Number(post.user_id) === Number(currentUser.id);
+      // 💡 FIXED: String comparison to ensure different ID object primitives match up smoothly
+      const isAuthor = String(post.user_id) === String(currentUser.id);
       const commentsCount = Array.isArray(post.comments) ? post.comments.length : 0;
 
       return \`
         <div class="post-card" id="post-\${post.id}">
           <div class="post-content">\${post.content}</div>
-          <div style="font-size:0.9rem; color:var(--gray); margin-bottom:10px;">By: \${post.username || 'Anonymous'}</div>
+          <div style="font-size:0.9rem; color:var(--gray); margin-bottom:10px;"><strong>By:</strong> \${post.username || 'Koikoi'}</div>
           
           <div class="post-meta-counters">
-            <span>👍 \span id="likes-count-\${post.id}">\${post.likes || 0}</span></span> | 
+            <span>👍 <span id="likes-count-\${post.id}">\${post.likes || 0}</span></span> | 
             <span>💬 \${commentsCount}</span>
           </div>
 
@@ -392,21 +387,16 @@ app.get('/', (req, res) => {
       try { await fetch(\`\${API_BASE}/posts/\${id}/like\`, { method: 'POST' }); } catch(e){}
     }
 
-    // ✏️ FETCH CURRENT DATA ROW AND POPULATE INTO QUILL
     async function openPostInQuillEditor(id) {
       try {
         const res = await fetch(\`\${API_BASE}/posts/\${id}\`);
         if (!res.ok) throw new Error("Could not load post content details");
         const post = await res.json();
 
-        // Populate hidden fields and input targets
         document.getElementById('editing-post-id').value = post.id;
         document.getElementById('post-title-input').value = post.title || "";
-        
-        // Inject structural text html inside quill instance layer cleanly
         quill.clipboard.dangerouslyPasteHTML(post.content);
 
-        // Transition layout view panel focus state
         document.getElementById('feed-view').style.display = 'none';
         document.getElementById('editor-section').style.display = 'block';
         document.getElementById('editor-title-heading').innerText = "Edit Your Post";
@@ -416,11 +406,10 @@ app.get('/', (req, res) => {
       }
     }
 
-    // Process dispatch updates or raw creation saves
     async function submitPostForm() {
       const postId = document.getElementById('editing-post-id').value;
       const title = document.getElementById('post-title-input').value.trim();
-      const content = quill.root.innerHTML; // Extract rich HTML text output string
+      const content = quill.root.innerHTML;
 
       if (!title || content === '<p><br></p>') {
         return alert("Please provide valid inputs for title and content layers.");
@@ -481,7 +470,7 @@ app.get('/posts', async (req, res) => {
     const result = await pool.query(`
       SELECT posts.*, users.username
       FROM posts
-      JOIN users ON posts.user_id = users.id
+      LEFT JOIN users ON posts.user_id = users.id
       ORDER BY posts.created_at DESC
     `);
     res.json(result.rows);
@@ -498,7 +487,7 @@ app.get('/posts/:id', async (req, res) => {
     const result = await pool.query(`
       SELECT posts.*, users.username
       FROM posts
-      JOIN users ON posts.user_id = users.id
+      LEFT JOIN users ON posts.user_id = users.id
       WHERE posts.id = $1
     `, [id]);
 
@@ -525,6 +514,11 @@ app.post('/posts', upload.single('media'), async (req, res) => {
     );
 
     const newPost = result.rows[0];
+    
+    // 💡 FIXED: Fetch full author username row back right away on creation event broadcast
+    const userLookup = await pool.query('SELECT username FROM users WHERE id = $1', [newPost.user_id]);
+    newPost.username = userLookup.rows[0]?.username || 'Koikoi';
+
     broadcast({ action: 'CREATE', post: newPost });
     res.status(201).json(newPost);
   } catch (err) {
@@ -548,9 +542,8 @@ app.put('/posts/:id', upload.single('media'), async (req, res) => {
 
     const updatedPost = result.rows[0];
     
-    // Fetch username so the frontend WebSocket can render the author name immediately
     const userLookup = await pool.query('SELECT username FROM users WHERE id = $1', [updatedPost.user_id]);
-    updatedPost.username = userLookup.rows[0]?.username || 'Unknown';
+    updatedPost.username = userLookup.rows[0]?.username || 'Koikoi';
 
     broadcast({ action: 'UPDATE', post: updatedPost });
     res.json(updatedPost);
@@ -575,7 +568,7 @@ app.post('/posts/:id/like', async (req, res) => {
 
     const updatedPost = result.rows[0];
     const userLookup = await pool.query('SELECT username FROM users WHERE id = $1', [updatedPost.user_id]);
-    updatedPost.username = userLookup.rows[0]?.username || 'Unknown';
+    updatedPost.username = userLookup.rows[0]?.username || 'Koikoi';
 
     broadcast({ action: 'UPDATE', post: updatedPost });
     res.json(updatedPost);
@@ -610,7 +603,7 @@ app.post('/posts/:id/comment', async (req, res) => {
 
     const updatedPost = result.rows[0];
     const userLookup = await pool.query('SELECT username FROM users WHERE id = $1', [updatedPost.user_id]);
-    updatedPost.username = userLookup.rows[0]?.username || 'Unknown';
+    updatedPost.username = userLookup.rows[0]?.username || 'Koikoi';
 
     broadcast({ action: 'UPDATE', post: updatedPost });
     res.json(updatedPost);
