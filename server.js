@@ -37,32 +37,27 @@ app.use('/posts', postRoutes);
 app.use('/users', userRoutes);
 
 // =========================================================================
-// 🌐 DYNAMIC GOOGLE INDEXING SITEMAP GENERATOR (SUPABASE / POSTGRES)
+// 🌐 DYNAMIC GOOGLE INDEXING SITEMAP GENERATOR (INLINE SUPABASE)
 // =========================================================================
 app.get('/sitemap.xml', async (req, res) => {
   const frontendHost = 'https://blog-frontend-k2b3.onrender.com';
   
   try {
-    // 🛠️ IMPORT PATH CONFIGURATION
-    // Based on standard layouts, if routes use require('../config/supabase')
-    // then server.js uses require('./config/supabase') or require('./supabase')
-    const supabase = require('./config/supabase') || require('./utils/supabase') || require('./supabase'); 
-
-    // Fetch post mappings from Supabase
+    // 🔑 USES YOUR GLOBAL INLINE SUPABASE INSTANCE VARIABLE
+    // If your initialization variable name is different (e.g., supabaseClient), rename it here
     const { data: posts, error } = await supabase
       .from('posts')
       .select('id, updated_at');
 
     if (error) throw error;
 
-    // Start building raw XML structure strings
     let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
     xml += `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`;
 
-    // Core Homepage Mapping Link Target
+    // Static Base Page URL
     xml += `  <url>\n    <loc>${frontendHost}/</loc>\n    <changefreq>daily</changefreq>\n    <priority>1.0</priority>\n  </url>\n`;
 
-    // Loop through Supabase items array layers safely
+    // Map rows directly from active connection stream
     if (posts && posts.length > 0) {
       posts.forEach(post => {
         const lastModDate = post.updated_at ? new Date(post.updated_at).toISOString() : new Date().toISOString();
@@ -82,9 +77,8 @@ app.get('/sitemap.xml', async (req, res) => {
     res.status(200).send(xml);
 
   } catch (err) {
-    console.error('⚠️ Sitemap execution process exception context:', err);
+    console.error('⚠️ Sitemap runtime error:', err);
     
-    // Clean, custom fallback targeting your REAL live production frontend domain link!
     let fallbackXml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
     fallbackXml += `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`;
     fallbackXml += `  <url>\n    <loc>${frontendHost}/</loc>\n    <priority>1.0</priority>\n  </url>\n`;
