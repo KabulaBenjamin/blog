@@ -31,20 +31,27 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 const authRoutes = require('./routes/auth');
 const postRoutes = require('./routes/posts');
 const userRoutes = require('./routes/users');
+const analyticsRoutes = require('./routes/analytics'); // 📈 Imported Analytics Router
 
 app.use('/', authRoutes);
 app.use('/posts', postRoutes);
 app.use('/users', userRoutes);
+app.use('/api/analytics', analyticsRoutes); // 📈 Mounted Analytics Router
 
 // =========================================================================
 // 🌐 DYNAMIC GOOGLE INDEXING SITEMAP GENERATOR (POSTGRES / DB POOL)
 // =========================================================================
 app.get('/sitemap.xml', async (req, res) => {
   const frontendHost = 'https://blog-frontend-k2b3.onrender.com';
+  let pool;
   
   try {
-    // 🔑 Dynamically checks where your database config file is hosted in the tree
-    const pool = require('./config/db') || require('./utils/db') || require('./db');
+    // 🔑 Gracefully resolve the pool database module wrapper path location
+    try { pool = require('./config/db'); } catch(e) {
+      try { pool = require('./utils/db'); } catch(e) {
+        pool = require('./db');
+      }
+    }
 
     if (!pool || typeof pool.query !== 'function') {
       throw new Error("PostgreSQL database connection pool initialization failed.");
@@ -78,7 +85,7 @@ app.get('/sitemap.xml', async (req, res) => {
     xml += `</urlset>`;
 
     res.header('Content-Type', 'application/xml');
-    res.status(200).send(xml);
+    return res.status(200).send(xml);
 
   } catch (err) {
     console.error('⚠️ Sitemap runtime error resolved via database driver context:', err);
@@ -90,7 +97,7 @@ app.get('/sitemap.xml', async (req, res) => {
     fallbackXml += `</urlset>`;
     
     res.header('Content-Type', 'application/xml');
-    res.status(200).send(fallbackXml);
+    return res.status(200).send(fallbackXml);
   }
 });
 
