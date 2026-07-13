@@ -40,32 +40,31 @@ app.use('/users', userRoutes);
 // 🌐 DYNAMIC GOOGLE INDEXING SITEMAP GENERATOR (SUPABASE / POSTGRES)
 // =========================================================================
 app.get('/sitemap.xml', async (req, res) => {
+  const frontendHost = 'https://blog-frontend-k2b3.onrender.com';
+  
   try {
-    // 1. Import your existing Supabase client instance
-    // (Adjust this path to point to your actual Supabase configuration utility file)
-    const supabase = require('./utils/supabase') || require('./config/supabase'); 
+    // 🛠️ IMPORT PATH CONFIGURATION
+    // Based on standard layouts, if routes use require('../config/supabase')
+    // then server.js uses require('./config/supabase') or require('./supabase')
+    const supabase = require('./config/supabase') || require('./utils/supabase') || require('./supabase'); 
 
-    // 2. Fetch all posts from your Supabase PostgreSQL table
-    // Adjust 'posts' to match your exact database table name if it's different
+    // Fetch post mappings from Supabase
     const { data: posts, error } = await supabase
       .from('posts')
       .select('id, updated_at');
 
     if (error) throw error;
 
-    const frontendHost = 'https://blog-frontend-k2b3.onrender.com';
-
-    // 3. Start building the raw XML template mapping
+    // Start building raw XML structure strings
     let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
     xml += `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`;
 
-    // Static pages setup (Home Page)
+    // Core Homepage Mapping Link Target
     xml += `  <url>\n    <loc>${frontendHost}/</loc>\n    <changefreq>daily</changefreq>\n    <priority>1.0</priority>\n  </url>\n`;
 
-    // 4. Loop through database rows and append dynamic structural URLs
+    // Loop through Supabase items array layers safely
     if (posts && posts.length > 0) {
       posts.forEach(post => {
-        // Handle PostgreSQL timestamp mapping cleanly
         const lastModDate = post.updated_at ? new Date(post.updated_at).toISOString() : new Date().toISOString();
 
         xml += `  <url>\n`;
@@ -79,15 +78,20 @@ app.get('/sitemap.xml', async (req, res) => {
 
     xml += `</urlset>`;
 
-    // 5. Send accurate Content-Type declaration header so Google reads it as XML data
     res.header('Content-Type', 'application/xml');
     res.status(200).send(xml);
 
   } catch (err) {
-    console.error('⚠️ Sitemap runtime compilation exception context:', err);
-    // Return empty structured framework fallback so crawlers don't break during an outage
+    console.error('⚠️ Sitemap execution process exception context:', err);
+    
+    // Clean, custom fallback targeting your REAL live production frontend domain link!
+    let fallbackXml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
+    fallbackXml += `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`;
+    fallbackXml += `  <url>\n    <loc>${frontendHost}/</loc>\n    <priority>1.0</priority>\n  </url>\n`;
+    fallbackXml += `</urlset>`;
+    
     res.header('Content-Type', 'application/xml');
-    res.status(200).send(`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>`);
+    res.status(200).send(fallbackXml);
   }
 });
 
