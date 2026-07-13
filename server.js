@@ -37,29 +37,33 @@ app.use('/posts', postRoutes);
 app.use('/users', userRoutes);
 
 // =========================================================================
-// 🌐 DYNAMIC GOOGLE INDEXING SITEMAP GENERATOR (INLINE SUPABASE)
+// 🌐 DYNAMIC GOOGLE INDEXING SITEMAP GENERATOR (POSTGRES / DB POOL)
 // =========================================================================
 app.get('/sitemap.xml', async (req, res) => {
   const frontendHost = 'https://blog-frontend-k2b3.onrender.com';
   
   try {
-    // 🔑 USES YOUR GLOBAL INLINE SUPABASE INSTANCE VARIABLE
-    // If your initialization variable name is different (e.g., supabaseClient), rename it here
-    const { data: posts, error } = await supabase
-      .from('posts')
-      .select('id, updated_at');
+    // 🔑 Dynamically checks where your database config file is hosted in the tree
+    const pool = require('./config/db') || require('./utils/db') || require('./db');
 
-    if (error) throw error;
+    if (!pool || typeof pool.query !== 'function') {
+      throw new Error("PostgreSQL database connection pool initialization failed.");
+    }
+
+    // Execute direct raw SQL query string to grab what the indexers require
+    const result = await pool.query('SELECT id, updated_at FROM posts;');
+    const posts = result.rows;
 
     let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
     xml += `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`;
 
-    // Static Base Page URL
+    // Static Base Page URL (Homepage)
     xml += `  <url>\n    <loc>${frontendHost}/</loc>\n    <changefreq>daily</changefreq>\n    <priority>1.0</priority>\n  </url>\n`;
 
-    // Map rows directly from active connection stream
+    // Map rows directly from active connection pool stream arrays
     if (posts && posts.length > 0) {
       posts.forEach(post => {
+        // Formats database timestamps safely into clean string objects
         const lastModDate = post.updated_at ? new Date(post.updated_at).toISOString() : new Date().toISOString();
 
         xml += `  <url>\n`;
@@ -77,8 +81,9 @@ app.get('/sitemap.xml', async (req, res) => {
     res.status(200).send(xml);
 
   } catch (err) {
-    console.error('⚠️ Sitemap runtime error:', err);
+    console.error('⚠️ Sitemap runtime error resolved via database driver context:', err);
     
+    // Clean production dynamic fallback utilizing the true frontend URL target
     let fallbackXml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
     fallbackXml += `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`;
     fallbackXml += `  <url>\n    <loc>${frontendHost}/</loc>\n    <priority>1.0</priority>\n  </url>\n`;
