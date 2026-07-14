@@ -55,23 +55,25 @@ router.get('/:id', async (req, res) => {
 });
 
 router.post('/', authenticateToken, async (req, res) => {
-  const { title, content } = req.body;
+  const { title, content, live_link, category, tags } = req.body;
   try {
     const result = await pool.query(
-      'INSERT INTO posts (user_id, title, content) VALUES ($1, $2, $3) RETURNING *',
-      [req.user.id, title, content]
+      `INSERT INTO posts (user_id, title, content, live_link, category, tags) 
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [req.user.id, title, content, live_link || '', category || 'tech', tags || '']
     );
     const newPost = result.rows[0];
     newPost.username = req.user.username;
     broadcast({ action: 'CREATE', post: newPost });
     res.status(201).json(newPost);
   } catch (err) {
+    console.error(err);
     res.status(500).json({ error: 'Failed to create post.' });
   }
 });
 
 router.put('/:id', authenticateToken, async (req, res) => {
-  const { title, content } = req.body;
+  const { title, content, live_link, category, tags } = req.body;
   try {
     const postCheck = await pool.query('SELECT user_id FROM posts WHERE id = $1', [req.params.id]);
     if (postCheck.rows.length === 0) return res.status(404).json({ error: 'Post not found' });
@@ -79,14 +81,17 @@ router.put('/:id', authenticateToken, async (req, res) => {
       return res.status(403).json({ error: 'Unauthorized modification attempt.' });
     }
     const result = await pool.query(
-      'UPDATE posts SET title=$1, content=$2 WHERE id=$3 RETURNING *',
-      [title, content, req.params.id]
+      `UPDATE posts 
+       SET title=$1, content=$2, live_link=$3, category=$4, tags=$5 
+       WHERE id=$6 RETURNING *`,
+      [title, content, live_link || '', category || 'tech', tags || '', req.params.id]
     );
     const updatedPost = result.rows[0];
     updatedPost.username = req.user.username;
     broadcast({ action: 'UPDATE', post: updatedPost });
     res.json(updatedPost);
   } catch (err) {
+    console.error(err);
     res.status(500).json({ error: 'Failed to update post.' });
   }
 });
