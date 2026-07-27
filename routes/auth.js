@@ -16,6 +16,7 @@ const issueSessionCookie = (res, user) => {
     sameSite: 'none',
     maxAge: 7 * 24 * 60 * 60 * 1000
   });
+  return token; // Returns the token so it can be sent in response body
 };
 
 router.get('/me', authenticateToken, (req, res) => {
@@ -31,8 +32,8 @@ router.post('/signup', async (req, res) => {
       'INSERT INTO users (username, password) VALUES ($1, $2) RETURNING id, username',
       [username, hashedPassword]
     );
-    issueSessionCookie(res, result.rows[0]);
-    res.json({ success: true, user: result.rows[0] });
+    const token = issueSessionCookie(res, result.rows[0]);
+    res.json({ success: true, user: { ...result.rows[0], token } });
   } catch (err) {
     if (err.code === '23505') return res.status(409).json({ error: 'Username taken.' });
     res.status(500).json({ error: 'Signup error.' });
@@ -49,15 +50,15 @@ router.post('/signin', async (req, res) => {
     if (!isMatch) return res.status(401).json({ error: 'Invalid credentials.' });
 
     const user = { id: result.rows[0].id, username: result.rows[0].username };
-    issueSessionCookie(res, user);
-    res.json({ success: true, user });
+    const token = issueSessionCookie(res, user);
+    res.json({ success: true, user: { ...user, token } });
   } catch (err) {
     res.status(500).json({ error: 'Signin error.' });
   }
 });
 
 // =========================================================================
-// FORGOT PASSWORD: Generates short 6-char token & returns it in the response
+// FORGOT PASSWORD: Generates short 6-char token & returns it in response
 // =========================================================================
 router.post('/forgot-password', async (req, res) => {
   const { username } = req.body;
@@ -65,22 +66,18 @@ router.post('/forgot-password', async (req, res) => {
   try {
     const userCheck = await pool.query('SELECT id FROM users WHERE username = $1', [username]);
     if (userCheck.rows.length === 0) {
-      // Security standard: don't explicitly leak non-existent usernames to scanners
       return res.status(404).json({ error: 'Username lookup processed: account not found.' });
     }
     
     const userId = userCheck.rows[0].id;
-    
-    // Generates a clean 6-character alpha-numeric token (e.g., A4B7E9) for screen display copy-paste efficiency
     const resetToken = crypto.randomBytes(3).toString('hex').toUpperCase();
-    const tokenExpiry = new Date(Date.now() + 3600000); // 1 Hour active lifespan Matrix
+    const tokenExpiry = new Date(Date.now() + 3600000); // 1 Hour
 
     await pool.query(
       'UPDATE users SET reset_token = $1, token_expiry = $2 WHERE id = $3', 
       [resetToken, tokenExpiry, userId]
     );
     
-    // Deliver token directly in the response payload for direct UI rendering
     res.json({ 
       success: true, 
       message: 'Reset token generated successfully.', 
@@ -92,13 +89,12 @@ router.post('/forgot-password', async (req, res) => {
 });
 
 // =========================================================================
-// RESET PASSWORD: Validates token expiration & updates user's credentials
+// RESET PASSWORD: Validates token expiration & updates user credentials
 // =========================================================================
 router.post('/reset-password', async (req, res) => {
   const { token, newPassword } = req.body;
   if (!token || !newPassword) return res.status(400).json({ error: 'Token and password required.' });
   try {
-    // Look up valid token that hasn't crossed the current timestamp expiry execution limit
     const result = await pool.query(
       'SELECT id FROM users WHERE reset_token = $1 AND token_expiry > NOW()', 
       [token.toUpperCase().trim()]
@@ -116,6 +112,41 @@ router.post('/reset-password', async (req, res) => {
     res.json({ success: true, message: 'Password updated successfully!' });
   } catch (err) {
     res.status(500).json({ error: 'Internal server error updating password.' });
+  }
+});
+
+// =========================================================================
+// CHANGE USERNAME: Updates the username for an authenticated user
+// =========================================================================
+router.put('/change-username', authenticateToken, async (req, res) => {
+  const { newUsername } = req.body;
+  const userId = req.user.id;
+
+  if (!newUsername || newUsername.trim() === "") {
+    return res.status(400).json({ error: 'New username is required.' });
+  }
+
+  try {
+    const checkUser = await pool.query('SELECT id FROM users WHERE username = $1', [newUsername.trim()]);
+    if (checkUser.rows.length > 0) {
+      return res.status(409).json({ error: 'Username is already taken.' });
+    }
+
+    const result = await pool.query(
+      'UPDATE users SET username = $1 WHERE id = $2 RETURNING id, username',
+      [newUsername.trim(), userId]
+    );
+
+    const token = issueSessionCookie(res, result.rows[0]);
+
+    res.json({ 
+      success: true, 
+      message: 'Username updated successfully!', 
+      user: { ...result.rows[0], token } 
+    });
+  } catch (err) {
+    console.error('Change Username Error:', err);
+    res.status(500).json({ error: 'Internal server error changing username.' });
   }
 });
 
