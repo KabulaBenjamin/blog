@@ -16,7 +16,7 @@ const issueSessionCookie = (res, user) => {
     sameSite: 'none',
     maxAge: 7 * 24 * 60 * 60 * 1000
   });
-  return token; // Returns the token so it can be sent in response body
+  return token; // Returns token string for payload storage
 };
 
 router.get('/me', authenticateToken, (req, res) => {
@@ -57,9 +57,7 @@ router.post('/signin', async (req, res) => {
   }
 });
 
-// =========================================================================
-// FORGOT PASSWORD: Generates short 6-char token & returns it in response
-// =========================================================================
+// FORGOT PASSWORD
 router.post('/forgot-password', async (req, res) => {
   const { username } = req.body;
   if (!username) return res.status(400).json({ error: 'Username is required.' });
@@ -84,13 +82,12 @@ router.post('/forgot-password', async (req, res) => {
       token: resetToken 
     });
   } catch (err) {
+    console.error('Forgot password error:', err);
     res.status(500).json({ error: 'Internal server error processing request.' });
   }
 });
 
-// =========================================================================
-// RESET PASSWORD: Validates token expiration & updates user credentials
-// =========================================================================
+// RESET PASSWORD
 router.post('/reset-password', async (req, res) => {
   const { token, newPassword } = req.body;
   if (!token || !newPassword) return res.status(400).json({ error: 'Token and password required.' });
@@ -115,9 +112,7 @@ router.post('/reset-password', async (req, res) => {
   }
 });
 
-// =========================================================================
-// CHANGE USERNAME: Updates the username for an authenticated user
-// =========================================================================
+// CHANGE USERNAME
 router.put('/change-username', authenticateToken, async (req, res) => {
   const { newUsername } = req.body;
   const userId = req.user.id;
