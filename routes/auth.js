@@ -112,6 +112,37 @@ router.post('/reset-password', async (req, res) => {
   }
 });
 
+// DIRECT CHANGE PASSWORD (FOR LOGGED IN USERS)
+router.put('/change-password', authenticateToken, async (req, res) => {
+  const { newPassword } = req.body;
+  const userId = req.user.id;
+
+  if (!newPassword || newPassword.trim() === "") {
+    return res.status(400).json({ error: 'New password is required.' });
+  }
+
+  if (newPassword.length < 6) {
+    return res.status(400).json({ error: 'Password must be at least 6 characters long.' });
+  }
+
+  try {
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    const result = await pool.query(
+      'UPDATE users SET password = $1 WHERE id = $2 RETURNING id',
+      [hashedPassword, userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User account not found.' });
+    }
+
+    res.json({ success: true, message: 'Password updated successfully!' });
+  } catch (err) {
+    console.error('Change Password Error:', err);
+    res.status(500).json({ error: 'Internal server error updating password.' });
+  }
+});
+
 // CHANGE USERNAME
 router.put('/change-username', authenticateToken, async (req, res) => {
   const { newUsername } = req.body;
