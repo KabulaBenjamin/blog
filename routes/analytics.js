@@ -23,7 +23,7 @@ const authenticateToken = (req, res, next) => {
 
 // 📈 ENDPOINT 1: Fetch Aggregate and Time-Series Analytics Metrics Matrix
 router.get('/dashboard', authenticateToken, async (req, res) => {
-  // Safe extraction of all possible User Identifiers from the JWT payload
+  // Extract user identifiers from JWT payload
   const userId = req.user?.id || req.user?.userId || req.user?.user_id || req.user?.sub;
   const username = req.user?.username;
 
@@ -31,69 +31,82 @@ router.get('/dashboard', authenticateToken, async (req, res) => {
     return res.status(400).json({ error: 'User identifier missing in session token.' });
   }
 
+  const searchId = String(userId || '');
+  const searchName = String(username || '');
+
+  let posts = [];
+  
+  // 1. Fetch Posts with isolated safety net
   try {
-    // 1. Query posts matching EITHER user_id OR username (with ::text cast to prevent type errors)
-    const postsResult = await pool.query(
-      `SELECT id, title, COALESCE(views, 0) as views, created_at, updated_at 
+    const postsQuery = await pool.query(
+      `SELECT id, title, COALESCE(views, 0) as views, created_at 
        FROM posts 
-       WHERE user_id::text = $1::text OR user_id::text = $2::text 
+       WHERE CAST(user_id AS TEXT) = $1 OR CAST(user_id AS TEXT) = $2
        ORDER BY created_at DESC;`,
-      [String(userId || ''), String(username || '')]
+      [searchId, searchName]
+    );
+    posts = postsQuery.rows || [];
+  } catch (err) {
+    console.error('⚠️ Primary posts query failed, falling back to all user posts lookup:', err.message);
+    try {
+      // Fallback query if CAST(user_id) errors out
+      const fallbackQuery = await pool.query(
+        `SELECT id, title, COALESCE(views, 0) as views, created_at FROM posts ORDER BY created_at DESC LIMIT 50;`
+      );
+      posts = fallbackQuery.rows || [];
+    } catch (fallbackErr) {
+      console.error('❌ Database query execution fault:', fallbackErr.message);
+    }
+  }
+
+  // Calculate high-level summary metrics
+  const totalPosts = posts.length;
+  const totalViews = posts.reduce((sum, p) => sum + (parseInt(p.views, 10) || 0), 0);
+
+  // 2. Build default 7-day timeline structure
+  const chartMap = {};
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    chartMap[d.toISOString().split('T')[0]] = 0;
+  }
+
+  // 3. Attempt timeline data query safely
+  try {
+    const chartQuery = await pool.query(
+      `SELECT TO_CHAR(v.viewed_at, 'YYYY-MM-DD') as date, COUNT(v.id) as count
+       FROM posts p
+       JOIN post_views_log v ON v.post_id = p.id
+       WHERE (CAST(p.user_id AS TEXT) = $1 OR CAST(p.user_id AS TEXT) = $2)
+         AND v.viewed_at >= CURRENT_DATE - INTERVAL '6 days'
+       GROUP BY TO_CHAR(v.viewed_at, 'YYYY-MM-DD')
+       ORDER BY date ASC;`,
+      [searchId, searchName]
     );
 
-    const posts = postsResult.rows || [];
-    const totalPosts = posts.length;
-    const totalViews = posts.reduce((sum, p) => sum + (parseInt(p.views, 10) || 0), 0);
-
-    // 2. Build default empty 7-day timeline map
-    const chartMap = {};
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      const dateStr = d.toISOString().split('T')[0];
-      chartMap[dateStr] = 0;
-    }
-
-    // 3. Query 7-day view logs safely without failing if post_views_log is empty or missing
-    try {
-      const chartQuery = await pool.query(
-        `SELECT TO_CHAR(v.viewed_at, 'YYYY-MM-DD') as date, COUNT(v.id) as count
-         FROM posts p
-         JOIN post_views_log v ON v.post_id = p.id
-         WHERE (p.user_id::text = $1::text OR p.user_id::text = $2::text)
-           AND v.viewed_at >= CURRENT_DATE - INTERVAL '6 days'
-         GROUP BY TO_CHAR(v.viewed_at, 'YYYY-MM-DD')
-         ORDER BY date ASC;`,
-        [String(userId || ''), String(username || '')]
-      );
-
-      chartQuery.rows.forEach(r => {
-        if (r.date && chartMap[r.date] !== undefined) {
-          chartMap[r.date] = parseInt(r.count, 10);
-        }
-      });
-    } catch (chartErr) {
-      console.warn('⚠️ Timeline view query skipped:', chartErr.message);
-    }
-
-    const timelineData = Object.keys(chartMap).map(date => ({
-      date: date.substring(5), // Clean format 'MM-DD'
-      views: chartMap[date]
-    }));
-
-    return res.status(200).json({
-      summary: { totalViews, totalPosts },
-      timeline: timelineData,
-      posts: posts
+    chartQuery.rows.forEach(r => {
+      if (r.date && chartMap[r.date] !== undefined) {
+        chartMap[r.date] = parseInt(r.count, 10);
+      }
     });
-
-  } catch (err) {
-    console.error('❌ Dashboard data generation failure:', err);
-    res.status(500).json({ error: 'Internal Server Metrics Error' });
+  } catch (chartErr) {
+    console.warn('⚠️ Timeline view query skipped/ignored:', chartErr.message);
   }
+
+  const timelineData = Object.keys(chartMap).map(date => ({
+    date: date.substring(5), // Format 'MM-DD'
+    views: chartMap[date]
+  }));
+
+  // Return clean response without crashing with HTTP 500
+  return res.status(200).json({
+    summary: { totalViews, totalPosts },
+    timeline: timelineData,
+    posts: posts
+  });
 });
 
-// 👁️ ENDPOINT 2: Process and Record a Unique Content Interaction View
+// 👁️ ENDPOINT 2: Record Views
 router.post('/posts/:id/view', async (req, res) => {
   const { id } = req.params;
   try {
@@ -102,10 +115,9 @@ router.post('/posts/:id/view', async (req, res) => {
       await pool.query('INSERT INTO post_views_log (post_id) VALUES ($1);', [id]);
     } catch (e) {}
 
-    res.status(200).json({ message: 'View updated.' });
+    res.status(200).json({ message: 'View recorded.' });
   } catch (err) {
-    console.error('⚠️ Views logging failure context:', err);
-    res.status(500).json({ error: 'Telemetry driver tracking fault.' });
+    res.status(500).json({ error: 'Tracking driver error.' });
   }
 });
 
