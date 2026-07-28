@@ -1,7 +1,8 @@
 // File Location: routes/analytics.js
 const express = require('express');
 const router = express.Router();
-// Dynamically resolve your core database connection pool
+
+// Dynamically resolve core database connection pool
 let pool;
 try { pool = require('../config/db'); } catch(e) {
   try { pool = require('../utils/db'); } catch(e) { pool = require('../db'); }
@@ -22,12 +23,17 @@ const authenticateToken = (req, res, next) => {
 
 // 📈 ENDPOINT 1: Fetch Aggregate and Time-Series Analytics Metrics Matrix
 router.get('/dashboard', authenticateToken, async (req, res) => {
-  const userId = req.user.id;
+  // 💡 FIX 1: Safely fall back between `id` and `userId` depending on JWT payload structure
+  const userId = req.user?.id || req.user?.userId;
+
+  if (!userId) {
+    return res.status(400).json({ error: 'User identifier missing in session token.' });
+  }
 
   try {
     // A. Query total stats and post list metrics for this specific user
     const postsQuery = await pool.query(
-      `SELECT id, title, views, created_at, updated_at 
+      `SELECT id, title, COALESCE(views, 0) as views, created_at, updated_at 
        FROM posts 
        WHERE user_id = $1 
        ORDER BY views DESC, created_at DESC;`,
@@ -37,16 +43,16 @@ router.get('/dashboard', authenticateToken, async (req, res) => {
 
     // Calculate quick-read aggregate metrics
     const totalPosts = posts.length;
-    const totalViews = posts.reduce((sum, p) => sum + (parseInt(p.views) || 0), 0);
+    const totalViews = posts.reduce((sum, p) => sum + (parseInt(p.views, 10) || 0), 0);
 
     // B. Query the 7-day time-series data bucketed cleanly by date
     const chartQuery = await pool.query(
-      `SELECT DATE(v.viewed_at) as date, COUNT(v.id) as count
+      `SELECT TO_CHAR(v.viewed_at, 'YYYY-MM-DD') as date, COUNT(v.id) as count
        FROM post_views_log v
        JOIN posts p ON v.post_id = p.id
        WHERE p.user_id = $1 AND v.viewed_at >= CURRENT_DATE - INTERVAL '6 days'
-       GROUP BY DATE(v.viewed_at)
-       ORDER BY DATE(v.viewed_at) ASC;`,
+       GROUP BY TO_CHAR(v.viewed_at, 'YYYY-MM-DD')
+       ORDER BY date ASC;`,
       [userId]
     );
 
@@ -58,13 +64,17 @@ router.get('/dashboard', authenticateToken, async (req, res) => {
       const dateStr = d.toISOString().split('T')[0];
       chartMap[dateStr] = 0;
     }
+
+    // 💡 FIX 2: Direct string match from PostgreSQL TO_CHAR output prevents timezone shifting
     chartQuery.rows.forEach(r => {
-      const formattedDate = new Date(r.date).toISOString().split('T')[0];
-      if (chartMap[formattedDate] !== undefined) chartMap[formattedDate] = parseInt(r.count);
+      const formattedDate = typeof r.date === 'string' ? r.date : new Date(r.date).toISOString().split('T')[0];
+      if (chartMap[formattedDate] !== undefined) {
+        chartMap[formattedDate] = parseInt(r.count, 10);
+      }
     });
 
     const timelineData = Object.keys(chartMap).map(date => ({
-      date: date.substring(5), // clean readable format like '07-13'
+      date: date.substring(5), // clean readable format like '07-28'
       views: chartMap[date]
     }));
 
@@ -87,7 +97,7 @@ router.post('/posts/:id/view', async (req, res) => {
     await pool.query('BEGIN');
     
     // Increment the counter on the target post row
-    await pool.query('UPDATE posts SET views = views + 1 WHERE id = $1;', [id]);
+    await pool.query('UPDATE posts SET views = COALESCE(views, 0) + 1 WHERE id = $1;', [id]);
     
     // Log the transaction time footprint record to feed the analytics charts
     await pool.query('INSERT INTO post_views_log (post_id) VALUES ($1);', [id]);
