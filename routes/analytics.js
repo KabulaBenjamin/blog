@@ -23,21 +23,22 @@ const authenticateToken = (req, res, next) => {
 
 // 📈 ENDPOINT 1: Fetch Aggregate and Time-Series Analytics Metrics Matrix
 router.get('/dashboard', authenticateToken, async (req, res) => {
-  // Safe extraction of User ID (supports string, integer, or UUID)
-  const userId = req.user?.id || req.user?.userId;
+  // Safe extraction of all possible User Identifiers from the JWT payload
+  const userId = req.user?.id || req.user?.userId || req.user?.user_id || req.user?.sub;
+  const username = req.user?.username;
 
-  if (!userId) {
+  if (!userId && !username) {
     return res.status(400).json({ error: 'User identifier missing in session token.' });
   }
 
   try {
-    // 1. Fetch user posts directly (using ::text casting to prevent type mismatch bugs)
+    // 1. Query posts matching EITHER user_id OR username (with ::text cast to prevent type errors)
     const postsResult = await pool.query(
       `SELECT id, title, COALESCE(views, 0) as views, created_at, updated_at 
        FROM posts 
-       WHERE user_id::text = $1::text 
+       WHERE user_id::text = $1::text OR user_id::text = $2::text 
        ORDER BY created_at DESC;`,
-      [userId]
+      [String(userId || ''), String(username || '')]
     );
 
     const posts = postsResult.rows || [];
@@ -53,16 +54,17 @@ router.get('/dashboard', authenticateToken, async (req, res) => {
       chartMap[dateStr] = 0;
     }
 
-    // 3. Attempt to fetch 7-day time series data safely without failing main post count
+    // 3. Query 7-day view logs safely without failing if post_views_log is empty or missing
     try {
       const chartQuery = await pool.query(
         `SELECT TO_CHAR(v.viewed_at, 'YYYY-MM-DD') as date, COUNT(v.id) as count
          FROM posts p
          JOIN post_views_log v ON v.post_id = p.id
-         WHERE p.user_id::text = $1::text AND v.viewed_at >= CURRENT_DATE - INTERVAL '6 days'
+         WHERE (p.user_id::text = $1::text OR p.user_id::text = $2::text)
+           AND v.viewed_at >= CURRENT_DATE - INTERVAL '6 days'
          GROUP BY TO_CHAR(v.viewed_at, 'YYYY-MM-DD')
          ORDER BY date ASC;`,
-        [userId]
+        [String(userId || ''), String(username || '')]
       );
 
       chartQuery.rows.forEach(r => {
@@ -71,11 +73,11 @@ router.get('/dashboard', authenticateToken, async (req, res) => {
         }
       });
     } catch (chartErr) {
-      console.warn('⚠️ Chart timeline lookup skipped:', chartErr.message);
+      console.warn('⚠️ Timeline view query skipped:', chartErr.message);
     }
 
     const timelineData = Object.keys(chartMap).map(date => ({
-      date: date.substring(5), // Clean format like '07-28'
+      date: date.substring(5), // Clean format 'MM-DD'
       views: chartMap[date]
     }));
 
@@ -95,15 +97,10 @@ router.get('/dashboard', authenticateToken, async (req, res) => {
 router.post('/posts/:id/view', async (req, res) => {
   const { id } = req.params;
   try {
-    // Increment post view counter directly
     await pool.query('UPDATE posts SET views = COALESCE(views, 0) + 1 WHERE id = $1;', [id]);
-    
-    // Log detailed view timestamp safely
     try {
       await pool.query('INSERT INTO post_views_log (post_id) VALUES ($1);', [id]);
-    } catch (e) {
-      // Ignored if post_views_log table is not initialized yet
-    }
+    } catch (e) {}
 
     res.status(200).json({ message: 'View updated.' });
   } catch (err) {
