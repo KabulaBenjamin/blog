@@ -50,6 +50,7 @@ const authRoutes = require('./routes/auth');
 const postRoutes = require('./routes/posts');
 const userRoutes = require('./routes/users');
 const analyticsRoutes = require('./routes/analytics');
+const adminRoutes = require('./routes/admin'); // 👈 Import admin routes
 const sitemapRoutes = require('./routes/sitemap');
 
 // Route Mounts
@@ -58,6 +59,7 @@ app.use('/', sitemapRoutes);
 app.use('/posts', postRoutes);
 app.use('/users', userRoutes);
 app.use('/api/analytics', analyticsRoutes);
+app.use('/api/admin', adminRoutes); // 👈 Mount admin routes here
 
 // Health Check Endpoint
 app.get('/health', (req, res) => {
