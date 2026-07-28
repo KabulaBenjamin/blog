@@ -8,139 +8,110 @@ try { pool = require('../config/db'); } catch(e) {
   try { pool = require('../utils/db'); } catch(e) { pool = require('../db'); }
 }
 
-// 🛡️ Middleware: Ensure user is authenticated AND an admin
+// 🛡️ Middleware: Auth & Superuser Check
 const requireAdmin = (req, res, next) => {
   const token = req.cookies?.token || (req.headers['authorization']?.split(' ')[1]);
   if (!token) return res.status(401).json({ error: 'Access denied: Token missing' });
 
   jwt.verify(token, process.env.JWT_SECRET, async (err, decoded) => {
-    if (err) return res.status(403).json({ error: 'Invalid or expired session token' });
+    if (err) return res.status(403).json({ error: 'Invalid token' });
 
-    const userId = decoded.id || decoded.userId || decoded.user_id || decoded.sub;
     const tokenUsername = decoded.username;
-
-    // Fast-track if token explicitly states Blog_Admin
+    
+    // Fast-pass for Blog_Admin
     if (tokenUsername === 'Blog_Admin') {
       req.adminUser = { username: 'Blog_Admin', role: 'admin' };
       return next();
     }
 
     try {
-      // Query user safely using text cast
       const userResult = await pool.query(
-        `SELECT id, username, role FROM users 
-         WHERE CAST(id AS TEXT) = $1 OR username = $2 LIMIT 1;`,
-        [String(userId || ''), String(tokenUsername || '')]
+        `SELECT id, username FROM users WHERE username = $1 LIMIT 1;`,
+        [tokenUsername]
       );
-
-      const user = userResult.rows[0];
-
-      // Grant access if username is Blog_Admin OR role is admin
-      if (user && (user.username === 'Blog_Admin' || user.role === 'admin')) {
-        req.adminUser = user;
+      if (userResult.rows[0]?.username === 'Blog_Admin') {
+        req.adminUser = userResult.rows[0];
         return next();
       }
-
-      return res.status(403).json({ error: 'Access denied: Superuser privileges required' });
+      return res.status(403).json({ error: 'Access denied: Superuser required' });
     } catch (dbErr) {
-      console.error('⚠️ Admin middleware check error:', dbErr.message);
-      // Fallback: If DB query fails but token username is Blog_Admin, permit access
-      if (tokenUsername === 'Blog_Admin') {
-        req.adminUser = { username: 'Blog_Admin', role: 'admin' };
-        return next();
-      }
-      return res.status(500).json({ error: 'Authorization validation failed' });
+      return res.status(500).json({ error: 'Authorization error' });
     }
   });
 };
 
-// 📊 1. Superuser Master Dashboard Analytics
+// 📊 1. Superuser Dashboard Data Endpoint
 router.get('/dashboard', requireAdmin, async (req, res) => {
   try {
-    const statsQuery = await pool.query(`
-      SELECT 
-        (SELECT COUNT(*) FROM users) AS total_users,
-        (SELECT COUNT(*) FROM posts) AS total_posts,
-        (SELECT COALESCE(SUM(views), 0) FROM posts) AS total_views;
+    // 1. Overall Platform Metrics
+    const totalUsers = await pool.query('SELECT COUNT(*) FROM users;');
+    const totalPosts = await pool.query('SELECT COUNT(*) FROM posts;');
+    
+    let totalViewsCount = 0;
+    try {
+      const viewsQuery = await pool.query('SELECT SUM(COALESCE(views, 0)) FROM posts;');
+      totalViewsCount = viewsQuery.rows[0]?.sum || 0;
+    } catch (e) {
+      totalViewsCount = 0;
+    }
+
+    // 2. Fetch Users List
+    const usersRes = await pool.query(`
+      SELECT id, username, COALESCE(email, '') as email, COALESCE(created_at, NOW()) as created_at 
+      FROM users 
+      ORDER BY id DESC;
     `);
 
-    let users = [];
-    try {
-      const usersQuery = await pool.query(`
-        SELECT u.id, u.username, u.email, COALESCE(u.role, 'user') as role, u.created_at,
-               COUNT(p.id) AS post_count,
-               COALESCE(SUM(p.views), 0) AS total_views
-        FROM users u
-        LEFT JOIN posts p ON CAST(p.user_id AS TEXT) = CAST(u.id AS TEXT) OR p.user_id::text = u.username
-        GROUP BY u.id, u.username, u.email, u.role, u.created_at
-        ORDER BY u.created_at DESC;
-      `);
-      users = usersQuery.rows;
-    } catch (e) {
-      console.warn('⚠️ User list fallback query activated:', e.message);
-      const fallbackUsers = await pool.query(`SELECT id, username, email, role, created_at FROM users;`);
-      users = fallbackUsers.rows.map(u => ({ ...u, post_count: 0, total_views: 0 }));
-    }
+    // 3. Fetch Posts List
+    const postsRes = await pool.query(`
+      SELECT id, title, COALESCE(views, 0) as views, COALESCE(created_at, NOW()) as created_at, user_id
+      FROM posts 
+      ORDER BY id DESC;
+    `);
 
-    let posts = [];
-    try {
-      const postsQuery = await pool.query(`
-        SELECT p.id, p.title, COALESCE(p.views, 0) as views, p.created_at, COALESCE(u.username, p.user_id::text) AS author
-        FROM posts p
-        LEFT JOIN users u ON CAST(p.user_id AS TEXT) = CAST(u.id AS TEXT)
-        ORDER BY p.created_at DESC;
-      `);
-      posts = postsQuery.rows;
-    } catch (e) {
-      console.warn('⚠️ Post moderation query fallback activated:', e.message);
-      const fallbackPosts = await pool.query(`SELECT id, title, views, created_at FROM posts;`);
-      posts = fallbackPosts.rows;
-    }
-
+    // Format safe response structure
     res.status(200).json({
-      summary: statsQuery.rows[0] || { total_users: 0, total_posts: 0, total_views: 0 },
-      users: users,
-      posts: posts
+      summary: {
+        total_users: totalUsers.rows[0]?.count || 0,
+        total_posts: totalPosts.rows[0]?.count || 0,
+        total_views: totalViewsCount
+      },
+      users: usersRes.rows.map(u => ({
+        ...u,
+        role: u.username === 'Blog_Admin' ? 'admin' : 'user',
+        post_count: postsRes.rows.filter(p => String(p.user_id) === String(u.id) || String(p.user_id) === u.username).length,
+        total_views: postsRes.rows.filter(p => String(p.user_id) === String(u.id) || String(p.user_id) === u.username).reduce((acc, curr) => acc + (parseInt(curr.views) || 0), 0)
+      })),
+      posts: postsRes.rows.map(p => ({
+        ...p,
+        author: usersRes.rows.find(u => String(u.id) === String(p.user_id))?.username || String(p.user_id || 'Unknown')
+      }))
     });
+
   } catch (err) {
-    console.error('❌ Admin Dashboard Fetch Error:', err);
+    console.error('❌ Superuser dashboard fetch error:', err);
     res.status(500).json({ error: 'Failed to fetch admin stats: ' + err.message });
   }
 });
 
-// 🗑️ 2. Admin: Delete Any User
+// 🗑️ Delete User
 router.delete('/users/:id', requireAdmin, async (req, res) => {
   const { id } = req.params;
   try {
-    await pool.query('DELETE FROM posts WHERE CAST(user_id AS TEXT) = $1', [id]);
-    await pool.query('DELETE FROM users WHERE CAST(id AS TEXT) = $1', [id]);
-    res.status(200).json({ message: 'User and associated posts deleted successfully' });
+    await pool.query('DELETE FROM posts WHERE user_id::text = $1', [String(id)]);
+    await pool.query('DELETE FROM users WHERE id::text = $1', [String(id)]);
+    res.status(200).json({ message: 'User deleted' });
   } catch (err) {
     res.status(500).json({ error: 'Failed to delete user' });
   }
 });
 
-// ✏️ 3. Admin: Edit Any Post
-router.put('/posts/:id', requireAdmin, async (req, res) => {
-  const { id } = req.params;
-  const { title, content } = req.body;
-  try {
-    await pool.query(
-      'UPDATE posts SET title = $1, content = $2 WHERE CAST(id AS TEXT) = $3',
-      [title, content, id]
-    );
-    res.status(200).json({ message: 'Post updated successfully by admin' });
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to edit post' });
-  }
-});
-
-// 🗑️ 4. Admin: Delete Any Post
+// 🗑️ Delete Post
 router.delete('/posts/:id', requireAdmin, async (req, res) => {
   const { id } = req.params;
   try {
-    await pool.query('DELETE FROM posts WHERE CAST(id AS TEXT) = $1', [id]);
-    res.status(200).json({ message: 'Post deleted successfully by admin' });
+    await pool.query('DELETE FROM posts WHERE id::text = $1', [String(id)]);
+    res.status(200).json({ message: 'Post deleted' });
   } catch (err) {
     res.status(500).json({ error: 'Failed to delete post' });
   }
