@@ -26,17 +26,22 @@ app.use(express.json());
 app.use(cookieParser());
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// 🌐 CORS Configuration
+// 🌐 CORS Configuration (Web + Mobile Capacitor Support)
 const allowedOrigins = [
   'https://blog-frontend-k2b3.onrender.com',
-  'https://blog-frontend-k28r.onrender.com'
+  'https://blog-frontend-k28r.onrender.com',
+  'https://localhost',        // 📱 Capacitor Android (HTTPS Scheme)
+  'http://localhost',         // 📱 Capacitor Android/iOS (HTTP Scheme)
+  'capacitor://localhost'     // 📱 Capacitor Custom Scheme
 ];
 
 app.use(cors({
   origin: function (origin, callback) {
+    // !origin allows requests from native mobile apps, Postman, server-to-server calls, etc.
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
+      console.warn(`Blocked by CORS: ${origin}`);
       callback(new Error('Not allowed by CORS'));
     }
   },
