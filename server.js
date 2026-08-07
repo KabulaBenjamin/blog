@@ -66,6 +66,11 @@ app.use('/users', userRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/admin', adminRoutes); // 👈 Mount admin routes here
 
+const recommendationRoutes = require('./routes/recommendations');
+
+// Mount recommendation engine endpoint
+app.use('/api/recommendations', recommendationRoutes);
+
 // Health Check Endpoint
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'healthy', database: 'connected', timestamp: new Date() });
