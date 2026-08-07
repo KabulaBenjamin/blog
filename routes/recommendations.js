@@ -1,20 +1,19 @@
+// File Location: routes/recommendations.js
 const express = require('express');
 const router = express.Router();
-const { getRelatedPosts, getTrendingPosts } = require('../services/recommendationService');
+const { getRecommendedPosts } = require('../services/recommendationService');
 
-// GET /api/recommendations/trending
-router.get('/trending', async (req, res) => {
-  const limit = parseInt(req.query.limit, 10) || 10;
-  const trending = await getTrendingPosts(limit);
-  res.json(trending);
-});
-
-// GET /api/recommendations/related/:postId
-router.get('/related/:postId', async (req, res) => {
-  const { postId } = req.params;
-  const limit = parseInt(req.query.limit, 10) || 5;
-  const related = await getRelatedPosts(postId, limit);
-  res.json(related);
+router.get('/', async (req, res) => {
+  try {
+    const userId = req.user ? req.user.id : null; // Extract user if auth middleware is present
+    const limit = parseInt(req.query.limit, 10) || 10;
+    
+    const recommendations = await getRecommendedPosts(userId, limit);
+    res.json(recommendations);
+  } catch (err) {
+    console.error('Failed to get recommendations:', err);
+    res.status(500).json({ error: 'Failed to generate recommendations' });
+  }
 });
 
 module.exports = router;
