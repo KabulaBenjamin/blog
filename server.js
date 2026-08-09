@@ -17,9 +17,13 @@ if (!process.env.JWT_SECRET) {
 // 🌐 Trust proxy for secure cookies behind Render's reverse proxy
 app.set('trust proxy', 1);
 
-// Initialize WebSockets Layer
-const { initWebSocket } = require('./utils/websocket');
-initWebSocket(server);
+// Initialize WebSockets Layer safely
+try {
+  const { initWebSocket } = require('./utils/websocket');
+  initWebSocket(server);
+} catch (err) {
+  console.warn("⚠️ WebSocket initialization skipped or failed:", err.message);
+}
 
 // Middleware Configuration Matrix
 app.use(express.json());
@@ -50,26 +54,33 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'Cookie']
 }));
 
-// Route Imports
-const authRoutes = require('./routes/auth');
-const postRoutes = require('./routes/posts');
-const userRoutes = require('./routes/users');
-const analyticsRoutes = require('./routes/analytics');
-const adminRoutes = require('./routes/admin'); // 👈 Import admin routes
-const sitemapRoutes = require('./routes/sitemap');
+// Safe Loader Helper for Route Modules
+const loadRoute = (modulePath) => {
+  try {
+    return require(modulePath);
+  } catch (err) {
+    console.warn(`⚠️ Warning: Route module "${modulePath}" could not be loaded: ${err.message}`);
+    return null;
+  }
+};
+
+// Route Imports with Fallback Protection
+const authRoutes = loadRoute('./routes/auth');
+const postRoutes = loadRoute('./routes/posts');
+const userRoutes = loadRoute('./routes/users');
+const analyticsRoutes = loadRoute('./routes/analytics');
+const adminRoutes = loadRoute('./routes/admin');
+const sitemapRoutes = loadRoute('./routes/sitemap');
+const recommendationRoutes = loadRoute('./routes/recommendations');
 
 // Route Mounts
-app.use('/', authRoutes);
-app.use('/', sitemapRoutes);
-app.use('/posts', postRoutes);
-app.use('/users', userRoutes);
-app.use('/api/analytics', analyticsRoutes);
-app.use('/api/admin', adminRoutes); // 👈 Mount admin routes here
-
-const recommendationRoutes = require('./routes/recommendations');
-
-// Mount recommendation engine endpoint
-app.use('/api/recommendations', recommendationRoutes);
+if (authRoutes) app.use('/', authRoutes);
+if (sitemapRoutes) app.use('/', sitemapRoutes);
+if (postRoutes) app.use('/posts', postRoutes);
+if (userRoutes) app.use('/users', userRoutes);
+if (analyticsRoutes) app.use('/api/analytics', analyticsRoutes);
+if (adminRoutes) app.use('/api/admin', adminRoutes);
+if (recommendationRoutes) app.use('/api/recommendations', recommendationRoutes);
 
 // Health Check Endpoint
 app.get('/health', (req, res) => {
