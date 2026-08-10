@@ -41,7 +41,6 @@ const allowedOrigins = [
 
 app.use(cors({
   origin: function (origin, callback) {
-    // !origin allows requests from native mobile apps, Postman, server-to-server calls, etc.
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
@@ -67,7 +66,7 @@ const loadRoute = (modulePath) => {
 // Route Imports with Fallback Protection
 const authRoutes = loadRoute('./routes/auth');
 const postRoutes = loadRoute('./routes/posts');
-const userRoutes = loadRoute('./routes/users');
+const userRoutes = loadRoute('./routes/users') || loadRoute('./models/users'); // 🔄 Fallback check for models/users
 const analyticsRoutes = loadRoute('./routes/analytics');
 const adminRoutes = loadRoute('./routes/admin');
 const sitemapRoutes = loadRoute('./routes/sitemap');
@@ -77,7 +76,10 @@ const recommendationRoutes = loadRoute('./routes/recommendations');
 if (authRoutes) app.use('/', authRoutes);
 if (sitemapRoutes) app.use('/', sitemapRoutes);
 if (postRoutes) app.use('/posts', postRoutes);
-if (userRoutes) app.use('/users', userRoutes);
+if (userRoutes) {
+  app.use('/users', userRoutes);
+  app.use('/api/users', userRoutes); // 🚀 Mounts reading progress (/api/users/reading-progress)
+}
 if (analyticsRoutes) app.use('/api/analytics', analyticsRoutes);
 if (adminRoutes) app.use('/api/admin', adminRoutes);
 if (recommendationRoutes) app.use('/api/recommendations', recommendationRoutes);
