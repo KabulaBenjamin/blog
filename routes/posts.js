@@ -1,3 +1,4 @@
+// File Location: routes/posts.js
 const express = require('express');
 const router = express.Router();
 const multer = require('multer');
@@ -28,12 +29,14 @@ router.post('/upload-image', upload.single('media'), (req, res) => {
   res.json({ url: req.file.path });
 });
 
-// GET all posts
+// GET all posts (Joined with categories metadata)
 router.get('/', async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT posts.*, users.username FROM posts
+      SELECT posts.*, users.username, categories.name AS category_name 
+      FROM posts
       LEFT JOIN users ON posts.user_id = users.id
+      LEFT JOIN categories ON posts.category_id = categories.id
       ORDER BY posts.created_at DESC
     `);
     res.json(result.rows);
@@ -42,7 +45,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-// GET single post (🎯 Dynamic Views Counting Added here!)
+// GET single post
 router.get('/:id', async (req, res) => {
   try {
     const postId = req.params.id;
@@ -53,10 +56,13 @@ router.get('/:id', async (req, res) => {
       [postId]
     );
 
-    // 2. Query the post along with creator's username
+    // 2. Query the post along with creator's username and category name
     const result = await pool.query(`
-      SELECT posts.*, users.username FROM posts
-      LEFT JOIN users ON posts.user_id = users.id WHERE posts.id = $1
+      SELECT posts.*, users.username, categories.name AS category_name 
+      FROM posts
+      LEFT JOIN users ON posts.user_id = users.id 
+      LEFT JOIN categories ON posts.category_id = categories.id
+      WHERE posts.id = $1
     `, [postId]);
 
     if (result.rows.length === 0) return res.status(404).json({ error: 'Not found' });
@@ -71,14 +77,14 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// CREATE a post
+// CREATE a post (With category_id support)
 router.post('/', authenticateToken, async (req, res) => {
-  const { title, content, live_link, category, tags } = req.body;
+  const { title, content, live_link, category, category_id, tags } = req.body;
   try {
     const result = await pool.query(
-      `INSERT INTO posts (user_id, title, content, live_link, category, tags, views, liked_by_users) 
-       VALUES ($1, $2, $3, $4, $5, $6, 0, '{}') RETURNING *`,
-      [req.user.id, title, content, live_link || '', category || 'tech', tags || '']
+      `INSERT INTO posts (user_id, title, content, live_link, category, category_id, tags, views, liked_by_users) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 0, '{}') RETURNING *`,
+      [req.user.id, title, content, live_link || '', category || 'Technology', category_id || null, tags || '']
     );
     const newPost = result.rows[0];
     newPost.username = req.user.username;
@@ -90,9 +96,9 @@ router.post('/', authenticateToken, async (req, res) => {
   }
 });
 
-// UPDATE a post
+// UPDATE a post (With category_id support)
 router.put('/:id', authenticateToken, async (req, res) => {
-  const { title, content, live_link, category, tags } = req.body;
+  const { title, content, live_link, category, category_id, tags } = req.body;
   try {
     const postCheck = await pool.query('SELECT user_id FROM posts WHERE id = $1', [req.params.id]);
     if (postCheck.rows.length === 0) return res.status(404).json({ error: 'Post not found' });
@@ -101,9 +107,9 @@ router.put('/:id', authenticateToken, async (req, res) => {
     }
     const result = await pool.query(
       `UPDATE posts 
-       SET title=$1, content=$2, live_link=$3, category=$4, tags=$5 
-       WHERE id=$6 RETURNING *`,
-      [title, content, live_link || '', category || 'tech', tags || '', req.params.id]
+       SET title=$1, content=$2, live_link=$3, category=$4, category_id=$5, tags=$6 
+       WHERE id=$7 RETURNING *`,
+      [title, content, live_link || '', category || 'Technology', category_id || null, tags || '', req.params.id]
     );
     const updatedPost = result.rows[0];
     updatedPost.username = req.user.username;
@@ -115,13 +121,12 @@ router.put('/:id', authenticateToken, async (req, res) => {
   }
 });
 
-// POST toggle like (🔒 Secured with authentication, prevents duplicates)
+// POST toggle like
 router.post('/:id/like', authenticateToken, async (req, res) => {
   const userId = req.user.id;
   const postId = req.params.id;
 
   try {
-    // 1. Fetch the post to check if user has already liked it
     const postCheck = await pool.query('SELECT liked_by_users FROM posts WHERE id = $1', [postId]);
     if (postCheck.rows.length === 0) return res.status(404).json({ error: 'Post not found' });
 
@@ -131,7 +136,6 @@ router.post('/:id/like', authenticateToken, async (req, res) => {
     let result;
 
     if (hasLiked) {
-      // 2a. Unlike: Remove user ID from array and decrement the count
       result = await pool.query(`
         UPDATE posts 
         SET 
@@ -141,7 +145,6 @@ router.post('/:id/like', authenticateToken, async (req, res) => {
         RETURNING *
       `, [userId, postId]);
     } else {
-      // 2b. Like: Add user ID to array (uniquely) and increment the count
       result = await pool.query(`
         UPDATE posts 
         SET 

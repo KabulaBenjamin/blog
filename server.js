@@ -1,3 +1,4 @@
+// File Location: server.js
 const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
@@ -66,7 +67,8 @@ const loadRoute = (modulePath) => {
 // Route Imports with Fallback Protection
 const authRoutes = loadRoute('./routes/auth');
 const postRoutes = loadRoute('./routes/posts');
-const userRoutes = loadRoute('./routes/users') || loadRoute('./models/users'); // 🔄 Fallback check for models/users
+const categoryRoutes = loadRoute('./routes/categories'); // 🏷️ Category route import
+const userRoutes = loadRoute('./routes/users') || loadRoute('./models/users'); 
 const analyticsRoutes = loadRoute('./routes/analytics');
 const adminRoutes = loadRoute('./routes/admin');
 const sitemapRoutes = loadRoute('./routes/sitemap');
@@ -75,10 +77,11 @@ const recommendationRoutes = loadRoute('./routes/recommendations');
 // Route Mounts
 if (authRoutes) app.use('/', authRoutes);
 if (sitemapRoutes) app.use('/', sitemapRoutes);
+if (categoryRoutes) app.use('/categories', categoryRoutes); // 🏷️ Mounted at /categories
 if (postRoutes) app.use('/posts', postRoutes);
 if (userRoutes) {
   app.use('/users', userRoutes);
-  app.use('/api/users', userRoutes); // 🚀 Mounts reading progress (/api/users/reading-progress)
+  app.use('/api/users', userRoutes);
 }
 if (analyticsRoutes) app.use('/api/analytics', analyticsRoutes);
 if (adminRoutes) app.use('/api/admin', adminRoutes);
