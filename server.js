@@ -73,6 +73,7 @@ const analyticsRoutes = loadRoute('./routes/analytics');
 const adminRoutes = loadRoute('./routes/admin');
 const sitemapRoutes = loadRoute('./routes/sitemap');
 const recommendationRoutes = loadRoute('./routes/recommendations');
+const followRoutes = loadRoute('./routes/follows'); // 👥 Author Follow routes import
 
 // Route Mounts
 if (authRoutes) app.use('/', authRoutes);
@@ -86,6 +87,7 @@ if (userRoutes) {
 if (analyticsRoutes) app.use('/api/analytics', analyticsRoutes);
 if (adminRoutes) app.use('/api/admin', adminRoutes);
 if (recommendationRoutes) app.use('/api/recommendations', recommendationRoutes);
+if (followRoutes) app.use('/api/authors', followRoutes); // 👥 Mounted at /api/authors
 
 // Health Check Endpoint
 app.get('/health', (req, res) => {
