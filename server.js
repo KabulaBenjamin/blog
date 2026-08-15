@@ -94,6 +94,11 @@ app.get('/health', (req, res) => {
   res.status(200).json({ status: 'healthy', database: 'connected', timestamp: new Date() });
 });
 
+// 🚀 App Version Verification Endpoint (Matches React APP_VERSION)
+app.get('/app-version', (req, res) => {
+  res.status(200).json({ version: '0.1.0' });
+});
+
 // Start Server
 server.listen(PORT, () => {
   console.log(`🚀 Modular Architecture Server running on port ${PORT}`);
